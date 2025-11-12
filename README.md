@@ -300,10 +300,10 @@ function clearPreview(){
   if(currentBlob){ URL.revokeObjectURL(currentBlob); currentBlob=null; }
 }
 
-/* ---------- Upload to Supabase Storage and create post ---------- */
-uploadBtn.onclick = async ()=>{
-  const f = fileInput.files[0];
-  if(!f) return alert('Choose a file first');
+/* ---------- Auto Upload on File Choose ---------- */
+fileInput.addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
   if(f.size > 10 * 1024 * 1024) return alert('File too large — max 10 MB');
 
   const { data: { session } } = await supabase.auth.getSession();
@@ -314,28 +314,39 @@ uploadBtn.onclick = async ()=>{
   const caption = document.getElementById('caption').value || '';
   const song = document.getElementById('song').value || '';
 
-  // create unique path
+  alert('Uploading file... Please wait ⏳');
+
+  // unique path तयार करा
   const ext = f.name.split('.').pop();
   const fname = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
   const path = `uploads/${fname}`;
 
-  // upload
-  const { error: upErr } = await supabase.storage.from('uploads').upload(path, f, { cacheControl: '3600', upsert: false });
+  // upload करा
+  const { error: upErr } = await supabase.storage.from('uploads').upload(path, f, {
+    cacheControl: '3600',
+    upsert: false
+  });
   if(upErr) return alert('Upload failed: ' + upErr.message);
 
-  // get public URL
+  // public URL घ्या
   const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
   const file_url = urlData.publicUrl;
   const type = f.type.startsWith('video/') ? 'video' : 'image';
 
-  // insert post record
-  const { error: insertErr } = await supabase.from('posts').insert([{ user_id: user.id, username: uname, file_url, type, song, caption }]);
+  // post insert करा
+  const { error: insertErr } = await supabase.from('posts').insert([
+    { user_id: user.id, username: uname, file_url, type, song, caption }
+  ]);
   if(insertErr) return alert('DB insert failed: ' + insertErr.message);
 
-  clearPreview(); document.getElementById('caption').value=''; document.getElementById('song').value='';
+  clearPreview();
+  document.getElementById('caption').value='';
+  document.getElementById('song').value='';
   loadFeed(); loadMyPosts();
-  alert('Uploaded ✅');
-};
+
+  alert('✅ Uploaded successfully!');
+});
+
 
 /* ---------- Load feed ---------- */
 async function loadFeed(){
