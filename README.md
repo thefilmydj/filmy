@@ -1,4 +1,4 @@
-<!doctype html>
+**<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -191,8 +191,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
 <script>
 /* ==========  IMPORTANT: PUT YOUR SUPABASE KEYS HERE  ========== */
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
+const SUPABASE_URL = "**https://YOUR-PROJECT.supabase.co**";
+const SUPABASE_ANON_KEY = "**YOUR-ANON-KEY**";
 /* ============================================================ */
 
 const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -469,3 +469,4 @@ loadFeed(); loadMyPosts(); loadFollowersPanel(); loadMessages();
 </script>
 </body>
 </html>
+**
