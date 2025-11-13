@@ -84,124 +84,133 @@ button:hover { background: #ff5179; }
 <div id="myPosts"></div>
 
 <script>
-// 🟢 Supabase config
-const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-const SUPABASE_KEY = "YOUR_PUBLIC_ANON_KEY";
+// 🟢 Supabase config (इथे तुझं project URL आणि anon key टाक)
+const SUPABASE_URL = "[https://YOUR_PROJECT_ID.supabase.co](https://egdgitzfonjkqtgejwdj.supabase.co)";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnZGdpdHpmb25qa3F0Z2Vqd2RqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5NjgxMjcsImV4cCI6MjA3ODU0NDEyN30.3bpjskODWgya0hSQDLmddJ9w1evCZNZ5_MU9oDYiF0U";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// 🟡 Login/Register
-document.getElementById('loginBtn').onclick = async ()=>{
+// 🟡 Login / Register
+document.getElementById('loginBtn').onclick = async () => {
   const email = document.getElementById('email').value.trim();
   const pass = document.getElementById('password').value.trim();
-  if(!email || !pass) return alert('Enter email & password');
+  if (!email || !pass) return alert('Enter email & password');
 
-  let { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-  if(error){
-    // If user not found, sign up
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+
+  if (error) {
+    // जर user नसल्यास - sign up करा
     const { error: signupErr } = await supabase.auth.signUp({ email, password: pass });
-    if(signupErr) return alert(signupErr.message);
-    alert('✅ Account created! Check your email for verification.');
+    if (signupErr) return alert('Signup error: ' + signupErr.message);
+    alert('✅ Account created! Please verify your email.');
   } else {
     alert('✅ Logged in!');
   }
+
   checkAuth();
 };
 
 // 🔴 Logout
-document.getElementById('logoutBtn').onclick = async ()=>{
+document.getElementById('logoutBtn').onclick = async () => {
   await supabase.auth.signOut();
   checkAuth();
 };
 
 // 🟣 Check Auth State
-async function checkAuth(){
-  const { data:{ user } } = await supabase.auth.getUser();
+async function checkAuth() {
+  const { data } = await supabase.auth.getUser();
+  const user = data?.user;
   const uploadSec = document.getElementById('uploadSection');
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
-  if(user){
+
+  if (user) {
     uploadSec.classList.remove('hidden');
     logoutBtn.classList.remove('hidden');
     loginBtn.classList.add('hidden');
-    loadFeed(); loadMyPosts();
+    document.getElementById('feed').textContent = 'Loading feed...';
+    await loadFeed();
+    await loadMyPosts();
   } else {
     uploadSec.classList.add('hidden');
     logoutBtn.classList.add('hidden');
     loginBtn.classList.remove('hidden');
-    document.getElementById('feed').innerHTML='Login to see feed';
+    document.getElementById('feed').textContent = 'Login to see feed.';
+    document.getElementById('myPosts').innerHTML = '';
   }
 }
+
+// पहिल्यांदा page load झाल्यावर user check करा
 checkAuth();
 
-// 📤 Auto Upload on File Choose
-document.getElementById('fileInput').addEventListener('change', async (e)=>{
-  const f = e.target.files[0];
-  if(!f) return;
-  if(f.size > 10 * 1024 * 1024) return alert('File too large (max 10MB)');
+// 📤 Upload when file selected
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) return alert('File too large (max 10MB)');
 
-  const { data:{ user } } = await supabase.auth.getUser();
-  if(!user) return alert('Please login first.');
+  const { data } = await supabase.auth.getUser();
+  const user = data?.user;
+  if (!user) return alert('Please login first.');
 
   const uname = document.getElementById('displayName').value || 'thefilmydj_';
   const caption = document.getElementById('caption').value || '';
   const song = document.getElementById('song').value || '';
 
   alert('Uploading... Please wait ⏳');
-  const ext = f.name.split('.').pop();
-  const fname = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-  const path = `uploads/${fname}`;
+  const ext = file.name.split('.').pop();
+  const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
 
-  const { error: upErr } = await supabase.storage.from('uploads').upload(path, f);
-  if(upErr) return alert('Upload failed: ' + upErr.message);
+  const { error: uploadErr } = await supabase.storage.from('uploads').upload(fileName, file);
+  if (uploadErr) return alert('Upload failed: ' + uploadErr.message);
 
-  const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
+  const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
   const file_url = urlData.publicUrl;
-  const type = f.type.startsWith('video/') ? 'video' : 'image';
+  const type = file.type.startsWith('video/') ? 'video' : 'image';
 
   const { error: insertErr } = await supabase.from('posts').insert([
     { user_id: user.id, username: uname, file_url, type, song, caption }
   ]);
-  if(insertErr) return alert('Database insert error: ' + insertErr.message);
+  if (insertErr) return alert('Database insert error: ' + insertErr.message);
 
   alert('✅ Uploaded successfully!');
-  document.getElementById('caption').value='';
-  document.getElementById('song').value='';
-  loadFeed(); loadMyPosts();
+  e.target.value = '';
+  document.getElementById('caption').value = '';
+  document.getElementById('song').value = '';
+  await loadFeed();
+  await loadMyPosts();
 });
 
 // 🟢 Load Feed
-async function loadFeed(){
+async function loadFeed() {
   const feedEl = document.getElementById('feed');
-  const { data, error } = await supabase.from('posts').select('*').order('created_at',{ascending:false}).limit(30);
-  if(error) return feedEl.textContent = 'Error loading feed.';
-  feedEl.innerHTML='';
-  data.forEach(p=>{
+  const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(30);
+  if (error) return (feedEl.textContent = 'Error loading feed: ' + error.message);
+  feedEl.innerHTML = '';
+  data.forEach((p) => {
     const div = document.createElement('div');
-    div.className='post';
-    div.innerHTML = `<div><b>@${p.username}</b> • ${new Date(p.created_at).toLocaleString()}</div>`;
-    if(p.type==='video'){
-      div.innerHTML += `<video src="${p.file_url}" controls></video>`;
-    } else {
-      div.innerHTML += `<img src="${p.file_url}">`;
-    }
-    if(p.caption) div.innerHTML += `<div>${p.caption}</div>`;
+    div.className = 'post';
+    div.innerHTML = `<b>@${p.username}</b><br>${new Date(p.created_at).toLocaleString()}<br>`;
+    if (p.type === 'video') div.innerHTML += `<video src="${p.file_url}" controls></video>`;
+    else div.innerHTML += `<img src="${p.file_url}" alt="post">`;
+    if (p.caption) div.innerHTML += `<p>${p.caption}</p>`;
     feedEl.appendChild(div);
   });
 }
 
 // 🟢 Load My Posts
-async function loadMyPosts(){
-  const { data:{ user } } = await supabase.auth.getUser();
+async function loadMyPosts() {
   const el = document.getElementById('myPosts');
-  if(!user){ el.innerHTML='Login to see your posts'; return; }
-  const { data, error } = await supabase.from('posts').select('*').eq('user_id', user.id).order('created_at',{ascending:false});
-  if(error) return el.innerHTML='Error loading posts';
-  el.innerHTML='';
-  data.forEach(p=>{
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData?.user;
+  if (!user) return (el.innerHTML = 'Login to see your posts.');
+  const { data, error } = await supabase.from('posts').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+  if (error) return (el.innerHTML = 'Error loading posts.');
+  el.innerHTML = '';
+  data.forEach((p) => {
     const div = document.createElement('div');
-    div.className='post';
-    if(p.type==='video') div.innerHTML = `<video src="${p.file_url}" controls></video>`;
-    else div.innerHTML = `<img src="${p.file_url}">`;
+    div.className = 'post';
+    if (p.type === 'video') div.innerHTML = `<video src="${p.file_url}" controls></video>`;
+    else div.innerHTML = `<img src="${p.file_url}" alt="my post">`;
     el.appendChild(div);
   });
 }
