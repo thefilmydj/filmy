@@ -1,383 +1,455 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TheFilmyDJ Portal — Social</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/*
+Full single-file React app (App.jsx)
 
-    // ---------------------------
-    // 🔐 Supabase config (use your existing values)
-    // ---------------------------
-    const SUPABASE_URL = "https://egdgitzfonjkqtgejwdj.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnZGdpdHpmb25qa3F0Z2Vqd2RqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5NjgxMjcsImV4cCI6MjA3ODU0NDEyN30.3bpjskODWgya0hSQDLmddJ9w1evCZNZ5_MU9oDYiF0U";
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+Instructions:
+1. Create a React app (Vite / Create React App).
+2. Install dependencies: `npm install @supabase/supabase-js react-router-dom`
+3. Add Tailwind CSS to the project (recommended). The code uses Tailwind classes.
+4. Replace SUPABASE_URL and SUPABASE_ANON_KEY with your project's values.
+5. Put this file at src/App.jsx and run the dev server.
 
-    // ---------------------------
-    // App state helpers
-    // ---------------------------
-    window.state = {
-      user: null,
-      profile: null,
-      feed: [],
-      viewing: 'feed' // feed | reels | upload | messages | profile | settings
-    };
+Notes: This is a compact, single-file demo. For production, split into modules, add proper error handling, security, RLS policies, and server-side functions.
 
-    // ---------------------------
-    // AUTH: signup, login, logout
-    // ---------------------------
-    window.signup = async function () {
-      const email = document.getElementById('su-email').value;
-      const password = document.getElementById('su-password').value;
-      const username = document.getElementById('su-username').value.trim();
-      const msg = document.getElementById('auth-msg');
-      msg.textContent = '⏳ Creating account...';
+Required Supabase schema (minimal):
+- profiles(id uuid primary key references auth.users,id, username text unique, display_name text, avatar_url text)
+- posts(id serial primary key, author uuid references profiles(id), file_url text, caption text, is_story boolean default false, is_reel boolean default false, created_at timestamptz default now())
+- likes(id serial, post_id int references posts(id), user_id uuid)
+- comments(id serial, post_id int, user_id uuid, content text, created_at timestamptz default now())
+- follows(id serial, follower uuid, following uuid)
+- messages(id serial, sender uuid, recipient uuid, content text, created_at timestamptz default now())
+- notifications(id serial, user_id uuid, actor_id uuid, type text, meta json, created_at timestamptz default now())
+- Storage bucket: uploads (public) for files
+*/
 
-      if (!email || !password || !username) { msg.textContent = 'Fill all fields'; return; }
+import React, { useEffect, useState, useRef } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import './index.css'; // assume Tailwind is configured
 
-      // check username uniqueness in profiles
-      const { data: existing } = await supabase.from('profiles').select('id').eq('username', username).limit(1);
-      if (existing && existing.length) { msg.textContent = '❌ Username already taken'; return; }
+// ---------- CONFIG ----------
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || 'https://YOUR-PROJECT.supabase.co';
+const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || 'YOUR-ANON-KEY';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      if (error) { msg.textContent = '❌ ' + error.message; return; }
+// ---------- App ----------
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [view, setView] = useState('feed'); // feed | reels | stories | explore | messages | profile | shop | create
+  const [feed, setFeed] = useState([]);
+  const [discover, setDiscover] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [chatOpen, setChatOpen] = useState(null);
 
-      // insert profile row
-      const userId = data.user?.id || null;
-      if (userId) {
-        await supabase.from('profiles').insert([{ id: userId, username, display_name: username }]);
-      }
+  useEffect(() => {
+    checkSession();
+    fetchDiscover();
+  }, []);
 
-      msg.textContent = '✅ Account created. Please login below.';
+  async function checkSession() {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) {
+      setUser(data.session.user);
+      await loadProfile(data.session.user.id);
     }
+  }
 
-    window.login = async function () {
-      const email = document.getElementById('li-email').value;
-      const password = document.getElementById('li-password').value;
-      const lmsg = document.getElementById('login-msg');
-      lmsg.textContent = '⏳ Logging in...';
+  async function loadProfile(userId) {
+    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    setProfile(data || null);
+    await loadFeed();
+    await loadNotifications();
+  }
 
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { lmsg.textContent = '❌ ' + error.message; return; }
+  async function loadFeed() {
+    const { data } = await supabase
+      .from('posts')
+      .select('*, profiles:profiles(username, display_name, avatar_url)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    setFeed(data || []);
+  }
 
-      state.user = data.user;
-      await loadProfile();
-      lmsg.textContent = '';
-      renderApp();
-    }
+  async function fetchDiscover() {
+    const { data } = await supabase.from('profiles').select('*').limit(20);
+    setDiscover(data || []);
+  }
 
-    window.logout = async function () {
-      await supabase.auth.signOut();
-      state.user = null; state.profile = null;
-      renderApp();
-    }
+  async function loadNotifications() {
+    if (!user) return;
+    const { data } = await supabase.from('notifications').select('*, actor:profiles(username)').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
+    setNotifications(data || []);
+  }
 
-    // ---------------------------
-    // Load profile and feed
-    // ---------------------------
-    async function loadProfile() {
-      if (!state.user) return;
-      const { data } = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
-      state.profile = data;
-      await loadFeed();
-    }
+  function onLogin(userObj, profileObj) {
+    setUser(userObj); setProfile(profileObj); setView('feed'); loadFeed(); loadNotifications();
+  }
 
-    async function loadFeed() {
-      // get latest posts (posts table expected)
-      const { data } = await supabase.from('posts').select(`*, profiles(username, display_name, avatar_url)`).order('created_at', { ascending: false }).limit(50);
-      state.feed = data || [];
-      renderFeed();
-    }
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-800 to-pink-600 text-white">
+      <Header user={user} profile={profile} onLogout={async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); }} setView={setView} />
 
-    // ---------------------------
-    // Upload & Create Post
-    // ---------------------------
-    window.uploadAndCreatePost = async function () {
-      const fileInput = document.getElementById('fileInput');
-      const caption = document.getElementById('post-caption').value;
-      const msg = document.getElementById('upload-msg');
-      if (!fileInput.files.length) { msg.textContent = 'Select a file'; return; }
-      const file = fileInput.files[0];
-      const path = `posts/${Date.now()}_${file.name}`;
-      msg.textContent = '⏳ Uploading...';
-
-      const { data: upData, error: upErr } = await supabase.storage.from('uploads').upload(path, file);
-      if (upErr) { msg.textContent = '❌ Upload failed: ' + upErr.message; return; }
-
-      const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
-      const publicUrl = urlData.publicUrl;
-
-      // create post row
-      const { error } = await supabase.from('posts').insert([{ author: state.user.id, file_url: publicUrl, caption }]);
-      if (error) { msg.textContent = '❌ Post creation failed: ' + error.message; return; }
-
-      msg.textContent = '✅ Uploaded & posted!';
-      fileInput.value = '';
-      document.getElementById('post-caption').value = '';
-      await loadFeed();
-    }
-
-    // ---------------------------
-    // Like / Comment / Follow
-    // ---------------------------
-    window.toggleLike = async function (postId) {
-      if (!state.user) { alert('Login first'); return; }
-      // check existing
-      const { data: existing } = await supabase.from('likes').select('*').eq('post_id', postId).eq('user_id', state.user.id).limit(1);
-      if (existing && existing.length) {
-        await supabase.from('likes').delete().eq('id', existing[0].id);
-      } else {
-        await supabase.from('likes').insert([{ post_id: postId, user_id: state.user.id }]);
-        // add notification
-        const post = state.feed.find(p => p.id === postId);
-        if (post && post.author !== state.user.id) {
-          await supabase.from('notifications').insert([{ user_id: post.author, actor_id: state.user.id, type: 'like', meta: JSON.stringify({ post_id: postId }) }]);
-        }
-      }
-      await loadFeed();
-    }
-
-    window.addComment = async function (postId) {
-      const el = document.getElementById('comment-'+postId);
-      const text = el.value.trim();
-      if (!text || !state.user) return;
-      await supabase.from('comments').insert([{ post_id: postId, user_id: state.user.id, content: text }]);
-      // notify
-      const post = state.feed.find(p => p.id === postId);
-      if (post && post.author !== state.user.id) {
-        await supabase.from('notifications').insert([{ user_id: post.author, actor_id: state.user.id, type: 'comment', meta: JSON.stringify({ post_id: postId }) }]);
-      }
-      el.value = '';
-      await loadFeed();
-    }
-
-    window.toggleFollow = async function (targetId) {
-      if (!state.user) { alert('Login first'); return; }
-      const { data: existing } = await supabase.from('follows').select('*').eq('follower', state.user.id).eq('following', targetId).limit(1);
-      if (existing && existing.length) {
-        await supabase.from('follows').delete().eq('id', existing[0].id);
-      } else {
-        await supabase.from('follows').insert([{ follower: state.user.id, following: targetId }]);
-        await supabase.from('notifications').insert([{ user_id: targetId, actor_id: state.user.id, type: 'follow' }]);
-      }
-      await loadFeed();
-    }
-
-    // ---------------------------
-    // Messaging (basic)
-    // ---------------------------
-    window.openChat = async function (otherId, otherName) {
-      document.getElementById('chat-with').textContent = otherName;
-      document.getElementById('messages-list').innerHTML = '';
-      document.getElementById('chat-modal').classList.remove('hidden');
-      // load last 50 messages between the two
-      const { data } = await supabase.from('messages').select('*').or(`(sender.eq.${state.user.id},recipient.eq.${state.user.id})`).order('created_at', { ascending: true }).limit(200);
-      // simple filter client-side
-      const conv = data.filter(m => (m.sender===state.user.id && m.recipient===otherId) || (m.sender===otherId && m.recipient===state.user.id));
-      conv.forEach(m => {
-        const div = document.createElement('div');
-        div.className = m.sender===state.user.id? 'text-right':'text-left';
-        div.textContent = m.content;
-        document.getElementById('messages-list').appendChild(div);
-      });
-      document.getElementById('send-to').dataset.to = otherId;
-    }
-
-    window.sendMessage = async function () {
-      const to = document.getElementById('send-to').dataset.to;
-      const text = document.getElementById('send-to').value.trim();
-      if (!to || !text) return;
-      await supabase.from('messages').insert([{ sender: state.user.id, recipient: to, content: text }]);
-      document.getElementById('send-to').value = '';
-      // you may reload messages (not implemented fully)
-      alert('Message sent');
-    }
-
-    window.closeChat = function () { document.getElementById('chat-modal').classList.add('hidden'); }
-
-    // ---------------------------
-    // Render UI
-    // ---------------------------
-    window.renderApp = function () {
-      document.getElementById('auth-area').classList.toggle('hidden', !!state.user);
-      document.getElementById('main-area').classList.toggle('hidden', !state.user);
-      if (state.user) {
-        document.getElementById('top-username').textContent = state.profile?.username || 'You';
-        loadFeed();
-      }
-    }
-
-    function renderFeed() {
-      const container = document.getElementById('feed');
-      container.innerHTML = '';
-      state.feed.forEach(post => {
-        const card = document.createElement('div');
-        card.className = 'bg-slate-800 rounded-lg p-4 mb-4 text-left';
-        const author = post.profiles?.username || 'unknown';
-        const avatar = post.profiles?.avatar_url || 'https://via.placeholder.com/48';
-        card.innerHTML = `
-          <div class='flex items-center gap-3 mb-3'>
-            <img src='${avatar}' class='w-12 h-12 rounded-full' />
-            <div class='flex-1'>
-              <div class='font-semibold'>${author}</div>
-              <div class='text-xs text-gray-300'>${new Date(post.created_at).toLocaleString()}</div>
+      <main className="max-w-5xl mx-auto p-4">
+        {!user ? (
+          <Auth onLoggedIn={onLogin} />
+        ) : (
+          <div className="grid grid-cols-4 gap-6">
+            <div className="col-span-1">
+              <Sidebar profile={profile} setView={setView} notifications={notifications} loadNotifications={loadNotifications} />
             </div>
-            <button onclick="toggleFollow('${post.author}')" class='text-sm text-cyan-400 underline'>Follow</button>
-          </div>
-          <div class='mb-3'>
-            ${post.file_url.includes('.mp4')?`<video src='${post.file_url}' controls class='w-full rounded'></video>`:`<img src='${post.file_url}' class='w-full rounded' />`}
-          </div>
-          <div class='mb-2'>${post.caption||''}</div>
-          <div class='flex items-center gap-4 text-sm'>
-            <button onclick="toggleLike(${post.id})" class='px-2 py-1 bg-gray-700 rounded'>Like</button>
-            <button onclick="document.getElementById('comment-box-${post.id}').classList.toggle('hidden')" class='px-2 py-1 bg-gray-700 rounded'>Comment</button>
-            <button onclick="openChat('${post.author}','${author}')" class='px-2 py-1 bg-gray-700 rounded'>Message</button>
-          </div>
-          <div id='comment-box-${post.id}' class='hidden mt-3'>
-            <input id='comment-${post.id}' placeholder='Write comment' class='w-full p-2 rounded bg-slate-700 mb-2' />
-            <button onclick="addComment(${post.id})" class='w-full bg-green-500 p-2 rounded'>Post Comment</button>
-          </div>
-        `;
-        container.appendChild(card);
-      });
-    }
 
-    // ---------------------------
-    // On load: check session
-    // ---------------------------
-    window.addEventListener('load', async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) { state.user = data.session.user; await loadProfile(); }
-      renderApp();
-    });
+            <div className="col-span-2">
+              {view === 'feed' && <Feed feed={feed} refresh={loadFeed} openChat={(id, name)=>{ setChatOpen({id,name}); setView('messages'); }} />}
+              {view === 'reels' && <Reels />}
+              {view === 'stories' && <Stories />}
+              {view === 'explore' && <Explore discover={discover} />}
+              {view === 'create' && <CreatePost onPosted={loadFeed} />}
+              {view === 'profile' && <ProfilePage profile={profile} refresh={loadProfile} />}
+              {view === 'shop' && <Shop />}
+            </div>
 
-    // expose supabase for debugging
-    window.supabase = supabase;
-  </script>
-</head>
-<body class="bg-gradient-to-br from-slate-900 to-purple-700 text-white min-h-screen font-sans">
+            <div className="col-span-1">
+              <Discover discover={discover} openChat={(id,name)=>{ setChatOpen({id,name}); setView('messages'); }} />
+            </div>
+          </div>
+        )}
 
-  <!-- Header -->
-  <header class="p-4 flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-cyan-300">🎬 TheFilmyDJ</h1>
-    <div class="flex items-center gap-3">
-      <div id="top-username" class="text-sm"></div>
-      <button onclick="logout()" class="bg-red-600 px-3 py-1 rounded text-sm">Logout</button>
+        {user && <MessagesModal chatOpen={chatOpen} onClose={()=>setChatOpen(null)} currentUser={user} />}
+      </main>
+
     </div>
-  </header>
+  );
+}
 
-  <main class="p-6">
-    <!-- AUTH AREA (shown when not logged in) -->
-    <section id="auth-area" class="max-w-3xl mx-auto grid grid-cols-2 gap-6">
-
-      <div class="bg-slate-800 p-6 rounded-lg">
-        <h2 class="text-xl font-semibold mb-3">Login</h2>
-        <input id="li-email" placeholder="Email" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <input id="li-password" type="password" placeholder="Password" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <button onclick="login()" class="w-full bg-cyan-500 p-2 rounded">Login</button>
-        <p id="login-msg" class="text-sm text-yellow-300 mt-2"></p>
+// ---------- Header ----------
+function Header({ user, profile, onLogout, setView }){
+  return (
+    <header className="flex items-center justify-between p-4 max-w-5xl mx-auto">
+      <div className="flex items-center gap-3">
+        <div className="text-2xl font-bold">🎬 TheFilmyDJ</div>
+        <nav className="hidden md:flex gap-3">
+          <button onClick={()=>setView('feed')} className="px-3 py-1 rounded bg-white/10">Feed</button>
+          <button onClick={()=>setView('reels')} className="px-3 py-1 rounded bg-white/10">Reels</button>
+          <button onClick={()=>setView('stories')} className="px-3 py-1 rounded bg-white/10">Stories</button>
+          <button onClick={()=>setView('explore')} className="px-3 py-1 rounded bg-white/10">Explore</button>
+        </nav>
       </div>
 
-      <div class="bg-slate-800 p-6 rounded-lg">
-        <h2 class="text-xl font-semibold mb-3">Sign up</h2>
-        <input id="su-username" placeholder="Choose username (unique)" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <input id="su-email" placeholder="Email" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <input id="su-password" type="password" placeholder="Password" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <button onclick="signup()" class="w-full bg-green-500 p-2 rounded">Create account</button>
-        <p id="auth-msg" class="text-sm text-yellow-300 mt-2"></p>
+      <div className="flex items-center gap-3">
+        <button onClick={()=>setView('create')} className="bg-green-500 px-3 py-2 rounded">+ Create</button>
+        {user ? (
+          <div className="flex items-center gap-3">
+            <div className="text-sm">{profile?.username}</div>
+            <img src={profile?.avatar_url||'https://via.placeholder.com/40'} className="w-10 h-10 rounded-full" />
+            <button onClick={onLogout} className="bg-red-600 px-3 py-1 rounded">Logout</button>
+          </div>
+        ) : null}
       </div>
+    </header>
+  );
+}
 
-    </section>
+// ---------- Auth (Signup only, no login button shown) ----------
+function Auth({ onLoggedIn }){
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [msg, setMsg] = useState('');
 
-    <!-- MAIN AREA (when logged in) -->
-    <section id="main-area" class="hidden max-w-4xl mx-auto">
-      <div class="grid grid-cols-3 gap-6">
-        <!-- Left: actions -->
-        <div class="col-span-1">
-          <div class="bg-slate-800 p-4 rounded mb-4">
-            <h3 class="font-semibold mb-2">Create</h3>
-            <input id="fileInput" type="file" class="mb-2 w-full text-sm" />
-            <input id="post-caption" placeholder="Caption" class="w-full p-2 rounded bg-slate-700 mb-2" />
-            <button onclick="uploadAndCreatePost()" class="w-full bg-emerald-500 p-2 rounded">Upload & Post</button>
-            <p id="upload-msg" class="text-sm text-yellow-300 mt-2"></p>
-          </div>
+  async function handleSignup(){
+    if(!email||!password||!username){ setMsg('Fill all fields'); return; }
+    setMsg('Creating account...');
 
-          <div class="bg-slate-800 p-4 rounded mb-4">
-            <h3 class="font-semibold mb-2">Navigation</h3>
-            <button onclick="window.state.viewing='feed'; loadFeed();" class="w-full mb-2 p-2 rounded bg-gray-700">Feed</button>
-            <button onclick="window.state.viewing='reels';alert('Reels UI coming soon')" class="w-full mb-2 p-2 rounded bg-gray-700">Reels</button>
-            <button onclick="window.state.viewing='messages';alert('Open Messages from posts or search users to chat')" class="w-full mb-2 p-2 rounded bg-gray-700">Messages</button>
-            <button onclick="window.state.viewing='profile';alert('Profile page coming soon')" class="w-full p-2 rounded bg-gray-700">Profile</button>
-          </div>
-        </div>
+    // ensure username unique
+    const { data:existing } = await supabase.from('profiles').select('id').eq('username', username).limit(1);
+    if(existing && existing.length){ setMsg('Username taken'); return; }
 
-        <!-- Center: feed -->
-        <div class="col-span-1">
-          <div id="feed"></div>
-        </div>
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if(error){ setMsg(error.message); return; }
 
-        <!-- Right: users & notifications -->
-        <div class="col-span-1">
-          <div class="bg-slate-800 p-4 rounded mb-4">
-            <h3 class="font-semibold mb-2">Discover Users</h3>
-            <div id="discover"></div>
-            <button onclick="renderDiscover()" class="mt-2 w-full bg-cyan-500 p-2 rounded">Refresh</button>
-          </div>
+    const userId = data.user?.id;
+    if(userId){
+      await supabase.from('profiles').insert([{ id:userId, username, display_name:username }]);
+      // auto sign-in may not happen; fetch session
+      const { data:sessionData } = await supabase.auth.getSession();
+      const sessionUser = sessionData.session?.user || data.user;
+      setMsg('Account created. Logged in.');
+      onLoggedIn(sessionUser, { id:userId, username });
+    }
+  }
 
-          <div class="bg-slate-800 p-4 rounded">
-            <h3 class="font-semibold mb-2">Notifications</h3>
-            <div id="notifications"></div>
-            <button onclick="renderNotifications()" class="mt-2 w-full bg-yellow-500 p-2 rounded">Load</button>
-          </div>
-        </div>
+  return (
+    <div className="bg-white/5 p-6 rounded-lg max-w-2xl mx-auto">
+      <h2 className="text-2xl mb-4">Create your account</h2>
+      <div className="grid grid-cols-2 gap-3">
+        <input value={username} onChange={e=>setUsername(e.target.value)} placeholder="Username" className="p-2 rounded bg-white/10" />
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" className="p-2 rounded bg-white/10" />
+        <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password" className="p-2 rounded bg-white/10" />
+        <button onClick={handleSignup} className="bg-green-500 p-2 rounded">Create Account</button>
       </div>
-    </section>
+      <p className="mt-3 text-sm text-yellow-200">{msg}</p>
+      <p className="mt-3 text-sm">By creating an account you agree to prototype terms.</p>
+    </div>
+  );
+}
 
-    <!-- Chat Modal -->
-    <div id="chat-modal" class="hidden fixed inset-0 flex items-end justify-center bg-black/50 p-4">
-      <div class="bg-slate-900 w-full max-w-xl rounded p-4">
-        <div class="flex justify-between mb-2">
-          <div id="chat-with" class="font-semibold"></div>
-          <button onclick="closeChat()" class="text-red-400">Close</button>
+// ---------- Sidebar ----------
+function Sidebar({ profile, setView, notifications, loadNotifications }){
+  return (
+    <div>
+      <div className="bg-white/5 p-4 rounded mb-4 text-center">
+        <img src={profile?.avatar_url||'https://via.placeholder.com/80'} className="w-20 h-20 rounded-full mx-auto mb-2" />
+        <div className="font-semibold">{profile?.display_name||profile?.username}</div>
+        <div className="text-xs text-gray-300">@{profile?.username}</div>
+      </div>
+      <div className="bg-white/5 p-4 rounded mb-4">
+        <button onClick={()=>setView('feed')} className="w-full mb-2 p-2 rounded bg-gray-700">Home</button>
+        <button onClick={()=>setView('reels')} className="w-full mb-2 p-2 rounded bg-gray-700">Reels</button>
+        <button onClick={()=>setView('stories')} className="w-full mb-2 p-2 rounded bg-gray-700">Stories</button>
+        <button onClick={()=>setView('explore')} className="w-full p-2 rounded bg-gray-700">Explore</button>
+      </div>
+      <div className="bg-white/5 p-4 rounded">
+        <div className="flex justify-between items-center mb-2">
+          <div className="font-semibold">Notifications</div>
+          <button onClick={loadNotifications} className="text-sm text-cyan-300">Refresh</button>
         </div>
-        <div id="messages-list" class="h-60 overflow-auto bg-slate-800 p-3 rounded mb-2"></div>
-        <div class="flex gap-2">
-          <input id="send-to" data-to="" placeholder="Message" class="flex-1 p-2 rounded bg-slate-700" />
-          <button onclick="sendMessage()" class="bg-cyan-500 p-2 rounded">Send</button>
-        </div>
+        {notifications.length===0 ? <div className="text-sm text-gray-300">No notifications</div> : (
+          notifications.map(n => <div key={n.id} className="p-2 text-sm bg-slate-800 rounded mb-2">{n.actor?.username} {n.type}</div>)
+        )}
       </div>
     </div>
+  );
+}
 
-  </main>
+// ---------- Feed ----------
+function Feed({ feed, refresh, openChat }){
+  return (
+    <div>
+      <div className="mb-4 flex justify-between items-center">
+        <h2 className="text-xl font-semibold">Home</h2>
+        <button onClick={refresh} className="text-sm bg-white/10 p-2 rounded">Refresh</button>
+      </div>
+      {feed.map(post => (
+        <PostCard key={post.id} post={post} openChat={openChat} />
+      ))}
+    </div>
+  );
+}
 
-  <script>
-    // helper UI renders for discover & notifications (simple implementations)
-    async function renderDiscover() {
-      const d = document.getElementById('discover'); d.innerHTML = '';
-      const { data } = await supabase.from('profiles').select('*').limit(10);
-      data.forEach(u => {
-        const div = document.createElement('div');
-        div.className = 'flex items-center gap-2 mb-2';
-        div.innerHTML = `<img src='${u.avatar_url||'https://via.placeholder.com/40'}' class='w-10 h-10 rounded-full' /><div class='flex-1'><div class='font-semibold'>${u.username}</div></div><button onclick="openChat('${u.id}','${u.username}')" class='text-sm underline'>Chat</button>`;
-        d.appendChild(div);
-      });
-    }
+function PostCard({ post, openChat }){
+  const isVideo = post.file_url && post.file_url.includes('.mp4');
+  return (
+    <div className="bg-white/5 rounded p-4 mb-4 text-black/90 text-white">
+      <div className="flex items-center gap-3 mb-3">
+        <img src={post.profiles?.avatar_url||'https://via.placeholder.com/48'} className="w-12 h-12 rounded-full" />
+        <div className="flex-1 text-left">
+          <div className="font-semibold text-white">{post.profiles?.username}</div>
+          <div className="text-xs text-gray-300">{new Date(post.created_at).toLocaleString()}</div>
+        </div>
+        <button className="text-sm text-cyan-400" onClick={()=>openChat(post.author, post.profiles?.username)}>Message</button>
+      </div>
+      <div className="mb-3">
+        {isVideo ? <video src={post.file_url} controls className="w-full rounded" /> : <img src={post.file_url} className="w-full rounded" />}
+      </div>
+      <div className="mb-2">{post.caption}</div>
+      <div className="flex gap-2">
+        <LikeButton postId={post.id} />
+        <CommentBox postId={post.id} />
+      </div>
+    </div>
+  );
+}
 
-    async function renderNotifications() {
-      const n = document.getElementById('notifications'); n.innerHTML = '';
-      if (!window.state.user) { n.textContent = 'Login to see notifications'; return; }
-      const { data } = await supabase.from('notifications').select(`*, actor:profiles(username)`).eq('user_id', window.state.user.id).order('created_at', { ascending: false }).limit(20);
-      if (!data || !data.length) { n.textContent = 'No notifications yet'; return; }
-      data.forEach(nt => {
-        const el = document.createElement('div');
-        el.className = 'mb-2 text-sm bg-slate-800 p-2 rounded';
-        el.textContent = `${nt.actor?.username || 'Someone'} ${nt.type} ${nt.meta? ' — ' + nt.meta : ''}`;
-        n.appendChild(el);
-      });
-    }
-  </script>
+function LikeButton({ postId }){
+  const [liked, setLiked] = useState(false);
+  async function toggle(){
+    // simple toggle demo (no user context here)
+    setLiked(!liked);
+  }
+  return <button onClick={toggle} className={`px-3 py-1 rounded ${liked? 'bg-pink-500':'bg-gray-700'}`}>{liked? 'Liked':'Like'}</button>;
+}
 
-</body>
-</html>
+function CommentBox({ postId }){
+  const [text, setText] = useState('');
+  async function post(){
+    if(!text) return; await supabase.from('comments').insert([{ post_id: postId, content: text }]); setText(''); alert('Comment posted');
+  }
+  return (
+    <div className="flex gap-2">
+      <input value={text} onChange={e=>setText(e.target.value)} placeholder="Add comment" className="p-2 rounded bg-white/10" />
+      <button onClick={post} className="bg-emerald-500 px-3 rounded">Post</button>
+    </div>
+  );
+}
+
+// ---------- Create Post ----------
+function CreatePost({ onPosted }){
+  const [file, setFile] = useState(null);
+  const [caption, setCaption] = useState('');
+  const [msg, setMsg] = useState('');
+
+  async function handleUpload(){
+    if(!file) { setMsg('Select a file'); return; }
+    setMsg('Uploading...');
+    const path = `posts/${Date.now()}_${file.name}`;
+    const { error: upErr } = await supabase.storage.from('uploads').upload(path, file);
+    if(upErr){ setMsg('Upload failed: '+upErr.message); return; }
+    const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
+    const publicUrl = urlData.publicUrl;
+    const { error: postErr } = await supabase.from('posts').insert([{ author: (await supabase.auth.getSession()).data.session.user.id, file_url: publicUrl, caption }]);
+    if(postErr){ setMsg('Post failed: '+postErr.message); return; }
+    setMsg('Posted!'); setFile(null); setCaption(''); onPosted();
+  }
+
+  return (
+    <div className="bg-white/5 p-4 rounded">
+      <h3 className="font-semibold mb-2">Create Post / Story / Reel</h3>
+      <input type="file" onChange={e=>setFile(e.target.files[0])} className="mb-2" />
+      <input value={caption} onChange={e=>setCaption(e.target.value)} placeholder="Write a caption..." className="w-full p-2 rounded bg-white/10 mb-2" />
+      <div className="flex gap-2">
+        <button onClick={handleUpload} className="bg-cyan-500 px-3 py-2 rounded">Upload & Post</button>
+        <button onClick={()=>alert('Story/Reel helper - use checkboxes in real app')} className="bg-yellow-500 px-3 py-2 rounded">Advanced</button>
+      </div>
+      <p className="text-sm text-yellow-200 mt-2">{msg}</p>
+    </div>
+  );
+}
+
+// ---------- Reels (simple grid of is_reel posts) ----------
+function Reels(){
+  const [reels, setReels] = useState([]);
+  useEffect(()=>{ load(); },[]);
+  async function load(){ const { data } = await supabase.from('posts').select('*').eq('is_reel', true).order('created_at', {ascending:false}); setReels(data||[]); }
+  return (
+    <div>
+      <h2 className="text-xl mb-4">Reels</h2>
+      <div className="grid grid-cols-2 gap-4">
+        {reels.map(r=> (
+          <div key={r.id} className="bg-white/5 rounded overflow-hidden">
+            <video src={r.file_url} controls className="w-full h-64 object-cover" />
+            <div className="p-2 text-sm">{r.caption}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Stories (top bar) ----------
+function Stories(){
+  const [stories, setStories] = useState([]);
+  useEffect(()=>{ load(); },[]);
+  async function load(){ const { data } = await supabase.from('posts').select('*, profiles(username, avatar_url)').eq('is_story', true).order('created_at', {ascending:false}).limit(50); setStories(data||[]); }
+  return (
+    <div>
+      <h2 className="text-xl mb-4">Stories</h2>
+      <div className="flex gap-3 overflow-auto">
+        {stories.map(s=> (
+          <div key={s.id} className="w-28 text-center">
+            <img src={s.profiles?.avatar_url||'https://via.placeholder.com/80'} className="w-20 h-20 rounded-full mx-auto mb-1" />
+            <div className="text-sm">{s.profiles?.username}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Explore ----------
+function Explore({ discover }){
+  return (
+    <div>
+      <h2 className="text-xl mb-4">Explore</h2>
+      <div className="grid grid-cols-3 gap-3">
+        {discover.map(u=> (
+          <div key={u.id} className="bg-white/5 rounded p-2 text-center">
+            <img src={u.avatar_url||'https://via.placeholder.com/100'} className="w-full h-32 object-cover rounded mb-2" />
+            <div className="font-semibold">{u.username}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Discover (right column) ----------
+function Discover({ discover, openChat }){
+  return (
+    <div className="bg-white/5 p-4 rounded">
+      <h3 className="font-semibold mb-3">Suggested</h3>
+      {discover.map(u=> (
+        <div key={u.id} className="flex items-center gap-2 mb-2">
+          <img src={u.avatar_url||'https://via.placeholder.com/40'} className="w-10 h-10 rounded-full" />
+          <div className="flex-1">
+            <div className="font-semibold">{u.username}</div>
+          </div>
+          <button onClick={()=>openChat(u.id,u.username)} className="text-sm underline">Message</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Profile Page ----------
+function ProfilePage({ profile, refresh }){
+  return (
+    <div>
+      <div className="bg-white/5 p-4 rounded mb-4 flex items-center gap-4">
+        <img src={profile?.avatar_url||'https://via.placeholder.com/100'} className="w-24 h-24 rounded-full" />
+        <div>
+          <div className="text-xl font-semibold">{profile?.display_name}</div>
+          <div className="text-sm text-gray-300">@{profile?.username}</div>
+        </div>
+      </div>
+      <div className="bg-white/5 p-4 rounded">Profile content (posts, highlights, insights) coming soon.</div>
+    </div>
+  );
+}
+
+// ---------- Messages Modal (basic) ----------
+function MessagesModal({ chatOpen, onClose, currentUser }){
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState('');
+  useEffect(()=>{ if(chatOpen) load(); }, [chatOpen]);
+  async function load(){ if(!chatOpen) return; const { data } = await supabase.from('messages').select('*').or(`(sender.eq.${currentUser.id},recipient.eq.${currentUser.id})`).order('created_at',{ascending:true}).limit(500); const conv = data.filter(m=> (m.sender===currentUser.id && m.recipient===chatOpen.id) || (m.sender===chatOpen.id && m.recipient===currentUser.id)); setMessages(conv); }
+  async function send(){ if(!text) return; await supabase.from('messages').insert([{ sender: currentUser.id, recipient: chatOpen.id, content: text }]); setText(''); load(); }
+  if(!chatOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center p-4">
+      <div className="bg-slate-900 w-full max-w-2xl rounded p-4">
+        <div className="flex justify-between items-center mb-2"><div className="font-semibold">Chat with {chatOpen.name}</div><button onClick={onClose}>Close</button></div>
+        <div className="h-64 overflow-auto bg-slate-800 p-3 rounded mb-2">
+          {messages.map(m=> <div key={m.id} className={m.sender===currentUser.id? 'text-right':'text-left'}>{m.content}</div>)}
+        </div>
+        <div className="flex gap-2"><input className="flex-1 p-2 rounded bg-white/10" value={text} onChange={e=>setText(e.target.value)} /><button onClick={send} className="bg-cyan-500 p-2 rounded">Send</button></div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Shop (placeholder) ----------
+function Shop(){
+  return (
+    <div>
+      <h2 className="text-xl mb-4">Shop</h2>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white/5 p-4 rounded">Product 1<br/><button className="mt-2 bg-green-500 px-3 py-2 rounded">Buy</button></div>
+        <div className="bg-white/5 p-4 rounded">Product 2<br/><button className="mt-2 bg-green-500 px-3 py-2 rounded">Buy</button></div>
+      </div>
+    </div>
+  );
+}
+
+/*
+This single-file app is a starter. It includes:
+- Signup-only auth (no login button in UI; you can extend to login)
+- Create posts (upload to storage), feed, reels, stories, explore, messages, notifications placeholder
+
+Next steps I can do for you (pick any):
+1) Split into components and add routing
+2) Realtime subscriptions (on insert) for feed & messages
+3) Full UI polish to match exact Instagram screens you showed
+4) Add Stories editor (camera + stickers) and Reels editor
+5) Add server-side functions (transcoding, thumbnails)
+
+Tell me which next and I'll generate it.
+*/
