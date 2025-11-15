@@ -1,383 +1,447 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TheFilmyDJ Portal — Social</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>filmydj — Prototype</title>
 
-    // ---------------------------
-    // 🔐 Supabase config (use your existing values)
-    // ---------------------------
-    const SUPABASE_URL = "https://egdgitzfonjkqtgejwdj.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnZGdpdHpmb25qa3F0Z2Vqd2RqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5NjgxMjcsImV4cCI6MjA3ODU0NDEyN30.3bpjskODWgya0hSQDLmddJ9w1evCZNZ5_MU9oDYiF0U";
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  <!--
+    Single-file filmydj prototype
+    - Save as index.html and open in browser
+    - Place your final logo image as "logo.png" in same folder to show on header
+    - All data stored in localStorage (frontend-only). For production add backend, storage, auth, streaming provider.
+  -->
 
-    // ---------------------------
-    // App state helpers
-    // ---------------------------
-    window.state = {
-      user: null,
-      profile: null,
-      feed: [],
-      viewing: 'feed' // feed | reels | upload | messages | profile | settings
-    };
-
-    // ---------------------------
-    // AUTH: signup, login, logout
-    // ---------------------------
-    window.signup = async function () {
-      const email = document.getElementById('su-email').value;
-      const password = document.getElementById('su-password').value;
-      const username = document.getElementById('su-username').value.trim();
-      const msg = document.getElementById('auth-msg');
-      msg.textContent = '⏳ Creating account...';
-
-      if (!email || !password || !username) { msg.textContent = 'Fill all fields'; return; }
-
-      // check username uniqueness in profiles
-      const { data: existing } = await supabase.from('profiles').select('id').eq('username', username).limit(1);
-      if (existing && existing.length) { msg.textContent = '❌ Username already taken'; return; }
-
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      if (error) { msg.textContent = '❌ ' + error.message; return; }
-
-      // insert profile row
-      const userId = data.user?.id || null;
-      if (userId) {
-        await supabase.from('profiles').insert([{ id: userId, username, display_name: username }]);
-      }
-
-      msg.textContent = '✅ Account created. Please login below.';
+  <style>
+    /* ----- Base & theme ----- */
+    :root{
+      --bg:#0f1724;
+      --panel:#0b1220;
+      --muted:#9aa4b2;
+      --accent1: #f09433;
+      --accent2: #e6683c;
+      --white:#f7f9fb;
+      --card:#0e1720;
     }
+    *{box-sizing:border-box;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#021024 0%, #071428 40%, #081029 100%);color:var(--white);-webkit-font-smoothing:antialiased}
+    .app{max-width:1100px;margin:18px auto;padding:12px;display:grid;grid-template-columns:1fr 340px;gap:18px;}
 
-    window.login = async function () {
-      const email = document.getElementById('li-email').value;
-      const password = document.getElementById('li-password').value;
-      const lmsg = document.getElementById('login-msg');
-      lmsg.textContent = '⏳ Logging in...';
+    header{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;background:linear-gradient(90deg,var(--accent1),var(--accent2));box-shadow:0 6px 24px rgba(0,0,0,.5);margin-bottom:12px;}
+    .logo-wrap{display:flex;align-items:center;gap:10px}
+    .logo{width:56px;height:56px;border-radius:12px;object-fit:cover;border:3px solid rgba(255,255,255,.12);background:#111}
+    .app-title{font-weight:800;font-size:20px;letter-spacing:0.6px}
+    .search{flex:1}
+    .search input{width:100%;padding:10px 12px;border-radius:10px;border:0;background:rgba(255,255,255,0.06);color:var(--white)}
 
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { lmsg.textContent = '❌ ' + error.message; return; }
+    /* left column */
+    .left-col{display:flex;flex-direction:column;gap:12px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);box-shadow:0 4px 20px rgba(2,6,23,.6)}
+    .stories{display:flex;gap:12px;overflow:auto;padding:6px}
+    .story{width:82px;height:82px;border-radius:50%;flex-shrink:0;border:3px solid radial-gradient(circle at 30% 20%, #ffefba, #ffc3a0);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;background:#222}
+    .story img{width:100%;height:100%;object-fit:cover}
+    .composer textarea{width:100%;min-height:70px;padding:10px;border-radius:10px;border:0;background:rgba(255,255,255,0.03);color:var(--white);resize:vertical}
+    .composer .row{display:flex;gap:8px;margin-top:8px;align-items:center}
+    .btn{padding:8px 12px;border-radius:10px;border:0;cursor:pointer;background:rgba(255,255,255,0.04);color:var(--white)}
+    .btn.primary{background:linear-gradient(90deg,var(--accent1),var(--accent2));box-shadow:0 6px 18px rgba(230,104,60,0.18)}
+    .media-preview img,.media-preview video{max-width:100%;border-radius:8px;display:block;margin-top:8px}
 
-      state.user = data.user;
-      await loadProfile();
-      lmsg.textContent = '';
-      renderApp();
-    }
+    .post{margin-top:12px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.03)}
+    .post .meta{display:flex;align-items:center;gap:10px;padding:10px}
+    .avatar{width:44px;height:44px;border-radius:50%;background:#222;flex-shrink:0}
+    .post .content{padding:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00))}
+    .post .content img,.post .content video{width:100%;border-radius:8px;max-height:520px;object-fit:cover}
+    .post .actions{display:flex;gap:10px;padding:10px;align-items:center}
+    .small{font-size:13px;color:var(--muted)}
 
-    window.logout = async function () {
-      await supabase.auth.signOut();
-      state.user = null; state.profile = null;
-      renderApp();
-    }
+    /* right column */
+    .sidebar{display:flex;flex-direction:column;gap:12px}
+    .mini-card{display:flex;gap:10px;align-items:center}
+    .big-btn{width:100%;padding:10px;border-radius:10px;border:0;background:rgba(255,255,255,0.04);color:var(--white);cursor:pointer}
 
-    // ---------------------------
-    // Load profile and feed
-    // ---------------------------
-    async function loadProfile() {
-      if (!state.user) return;
-      const { data } = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
-      state.profile = data;
-      await loadFeed();
-    }
+    /* reels grid */
+    .reels-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+    .reel-thumb{width:100%;height:110px;border-radius:8px;object-fit:cover}
 
-    async function loadFeed() {
-      // get latest posts (posts table expected)
-      const { data } = await supabase.from('posts').select(`*, profiles(username, display_name, avatar_url)`).order('created_at', { ascending: false }).limit(50);
-      state.feed = data || [];
-      renderFeed();
-    }
+    /* modal/dm */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:12px;z-index:60}
+    .modal{width:100%;max-width:820px;background:#061424;border-radius:12px;padding:12px;border:1px solid rgba(255,255,255,0.04)}
 
-    // ---------------------------
-    // Upload & Create Post
-    // ---------------------------
-    window.uploadAndCreatePost = async function () {
-      const fileInput = document.getElementById('fileInput');
-      const caption = document.getElementById('post-caption').value;
-      const msg = document.getElementById('upload-msg');
-      if (!fileInput.files.length) { msg.textContent = 'Select a file'; return; }
-      const file = fileInput.files[0];
-      const path = `posts/${Date.now()}_${file.name}`;
-      msg.textContent = '⏳ Uploading...';
+    /* subtle animation */
+    @keyframes floaty {0%{transform:translateY(0)}50%{transform:translateY(-6px)}100%{transform:translateY(0)}}
+    .logo{animation:floaty 4s ease-in-out infinite}
 
-      const { data: upData, error: upErr } = await supabase.storage.from('uploads').upload(path, file);
-      if (upErr) { msg.textContent = '❌ Upload failed: ' + upErr.message; return; }
-
-      const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
-      const publicUrl = urlData.publicUrl;
-
-      // create post row
-      const { error } = await supabase.from('posts').insert([{ author: state.user.id, file_url: publicUrl, caption }]);
-      if (error) { msg.textContent = '❌ Post creation failed: ' + error.message; return; }
-
-      msg.textContent = '✅ Uploaded & posted!';
-      fileInput.value = '';
-      document.getElementById('post-caption').value = '';
-      await loadFeed();
-    }
-
-    // ---------------------------
-    // Like / Comment / Follow
-    // ---------------------------
-    window.toggleLike = async function (postId) {
-      if (!state.user) { alert('Login first'); return; }
-      // check existing
-      const { data: existing } = await supabase.from('likes').select('*').eq('post_id', postId).eq('user_id', state.user.id).limit(1);
-      if (existing && existing.length) {
-        await supabase.from('likes').delete().eq('id', existing[0].id);
-      } else {
-        await supabase.from('likes').insert([{ post_id: postId, user_id: state.user.id }]);
-        // add notification
-        const post = state.feed.find(p => p.id === postId);
-        if (post && post.author !== state.user.id) {
-          await supabase.from('notifications').insert([{ user_id: post.author, actor_id: state.user.id, type: 'like', meta: JSON.stringify({ post_id: postId }) }]);
-        }
-      }
-      await loadFeed();
-    }
-
-    window.addComment = async function (postId) {
-      const el = document.getElementById('comment-'+postId);
-      const text = el.value.trim();
-      if (!text || !state.user) return;
-      await supabase.from('comments').insert([{ post_id: postId, user_id: state.user.id, content: text }]);
-      // notify
-      const post = state.feed.find(p => p.id === postId);
-      if (post && post.author !== state.user.id) {
-        await supabase.from('notifications').insert([{ user_id: post.author, actor_id: state.user.id, type: 'comment', meta: JSON.stringify({ post_id: postId }) }]);
-      }
-      el.value = '';
-      await loadFeed();
-    }
-
-    window.toggleFollow = async function (targetId) {
-      if (!state.user) { alert('Login first'); return; }
-      const { data: existing } = await supabase.from('follows').select('*').eq('follower', state.user.id).eq('following', targetId).limit(1);
-      if (existing && existing.length) {
-        await supabase.from('follows').delete().eq('id', existing[0].id);
-      } else {
-        await supabase.from('follows').insert([{ follower: state.user.id, following: targetId }]);
-        await supabase.from('notifications').insert([{ user_id: targetId, actor_id: state.user.id, type: 'follow' }]);
-      }
-      await loadFeed();
-    }
-
-    // ---------------------------
-    // Messaging (basic)
-    // ---------------------------
-    window.openChat = async function (otherId, otherName) {
-      document.getElementById('chat-with').textContent = otherName;
-      document.getElementById('messages-list').innerHTML = '';
-      document.getElementById('chat-modal').classList.remove('hidden');
-      // load last 50 messages between the two
-      const { data } = await supabase.from('messages').select('*').or(`(sender.eq.${state.user.id},recipient.eq.${state.user.id})`).order('created_at', { ascending: true }).limit(200);
-      // simple filter client-side
-      const conv = data.filter(m => (m.sender===state.user.id && m.recipient===otherId) || (m.sender===otherId && m.recipient===state.user.id));
-      conv.forEach(m => {
-        const div = document.createElement('div');
-        div.className = m.sender===state.user.id? 'text-right':'text-left';
-        div.textContent = m.content;
-        document.getElementById('messages-list').appendChild(div);
-      });
-      document.getElementById('send-to').dataset.to = otherId;
-    }
-
-    window.sendMessage = async function () {
-      const to = document.getElementById('send-to').dataset.to;
-      const text = document.getElementById('send-to').value.trim();
-      if (!to || !text) return;
-      await supabase.from('messages').insert([{ sender: state.user.id, recipient: to, content: text }]);
-      document.getElementById('send-to').value = '';
-      // you may reload messages (not implemented fully)
-      alert('Message sent');
-    }
-
-    window.closeChat = function () { document.getElementById('chat-modal').classList.add('hidden'); }
-
-    // ---------------------------
-    // Render UI
-    // ---------------------------
-    window.renderApp = function () {
-      document.getElementById('auth-area').classList.toggle('hidden', !!state.user);
-      document.getElementById('main-area').classList.toggle('hidden', !state.user);
-      if (state.user) {
-        document.getElementById('top-username').textContent = state.profile?.username || 'You';
-        loadFeed();
-      }
-    }
-
-    function renderFeed() {
-      const container = document.getElementById('feed');
-      container.innerHTML = '';
-      state.feed.forEach(post => {
-        const card = document.createElement('div');
-        card.className = 'bg-slate-800 rounded-lg p-4 mb-4 text-left';
-        const author = post.profiles?.username || 'unknown';
-        const avatar = post.profiles?.avatar_url || 'https://via.placeholder.com/48';
-        card.innerHTML = `
-          <div class='flex items-center gap-3 mb-3'>
-            <img src='${avatar}' class='w-12 h-12 rounded-full' />
-            <div class='flex-1'>
-              <div class='font-semibold'>${author}</div>
-              <div class='text-xs text-gray-300'>${new Date(post.created_at).toLocaleString()}</div>
-            </div>
-            <button onclick="toggleFollow('${post.author}')" class='text-sm text-cyan-400 underline'>Follow</button>
-          </div>
-          <div class='mb-3'>
-            ${post.file_url.includes('.mp4')?`<video src='${post.file_url}' controls class='w-full rounded'></video>`:`<img src='${post.file_url}' class='w-full rounded' />`}
-          </div>
-          <div class='mb-2'>${post.caption||''}</div>
-          <div class='flex items-center gap-4 text-sm'>
-            <button onclick="toggleLike(${post.id})" class='px-2 py-1 bg-gray-700 rounded'>Like</button>
-            <button onclick="document.getElementById('comment-box-${post.id}').classList.toggle('hidden')" class='px-2 py-1 bg-gray-700 rounded'>Comment</button>
-            <button onclick="openChat('${post.author}','${author}')" class='px-2 py-1 bg-gray-700 rounded'>Message</button>
-          </div>
-          <div id='comment-box-${post.id}' class='hidden mt-3'>
-            <input id='comment-${post.id}' placeholder='Write comment' class='w-full p-2 rounded bg-slate-700 mb-2' />
-            <button onclick="addComment(${post.id})" class='w-full bg-green-500 p-2 rounded'>Post Comment</button>
-          </div>
-        `;
-        container.appendChild(card);
-      });
-    }
-
-    // ---------------------------
-    // On load: check session
-    // ---------------------------
-    window.addEventListener('load', async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) { state.user = data.session.user; await loadProfile(); }
-      renderApp();
-    });
-
-    // expose supabase for debugging
-    window.supabase = supabase;
-  </script>
+    /* responsive */
+    @media (max-width:980px){.app{grid-template-columns:1fr;padding:12px} .sidebar{display:none}}
+  </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 to-purple-700 text-white min-h-screen font-sans">
+<body>
 
-  <!-- Header -->
-  <header class="p-4 flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-cyan-300">🎬 TheFilmyDJ</h1>
-    <div class="flex items-center gap-3">
-      <div id="top-username" class="text-sm"></div>
-      <button onclick="logout()" class="bg-red-600 px-3 py-1 rounded text-sm">Logout</button>
+<header>
+  <div class="logo-wrap">
+    <img src="logo.png" alt="logo" class="logo" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2256%22 height=%2256%22><rect rx=%2212%22 width=%2256%22 height=%2256%22 fill=%22%23011115%22/><text x=%2228%22 y=%2234%22 font-size=%2216%22 text-anchor=%22middle%22 fill=%22%23fff%22 font-family=%22Arial%22>FD</text></svg>'">
+    <div>
+      <div class="app-title">filmydj</div>
+      <div class="small">Your visual stage</div>
     </div>
-  </header>
+  </div>
 
-  <main class="p-6">
-    <!-- AUTH AREA (shown when not logged in) -->
-    <section id="auth-area" class="max-w-3xl mx-auto grid grid-cols-2 gap-6">
+  <div style="flex:1"></div>
 
-      <div class="bg-slate-800 p-6 rounded-lg">
-        <h2 class="text-xl font-semibold mb-3">Login</h2>
-        <input id="li-email" placeholder="Email" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <input id="li-password" type="password" placeholder="Password" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <button onclick="login()" class="w-full bg-cyan-500 p-2 rounded">Login</button>
-        <p id="login-msg" class="text-sm text-yellow-300 mt-2"></p>
+  <div style="width:420px">
+    <input id="searchInput" placeholder="Search posts, users, tags..." />
+  </div>
+</header>
+
+<main class="app">
+
+  <!-- LEFT: main feed -->
+  <section class="left-col">
+
+    <!-- Stories + quick composer -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Stories</strong>
+        <div class="small">Add • 24h expiry • stickers</div>
       </div>
 
-      <div class="bg-slate-800 p-6 rounded-lg">
-        <h2 class="text-xl font-semibold mb-3">Sign up</h2>
-        <input id="su-username" placeholder="Choose username (unique)" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <input id="su-email" placeholder="Email" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <input id="su-password" type="password" placeholder="Password" class="w-full p-2 rounded bg-slate-700 mb-3" />
-        <button onclick="signup()" class="w-full bg-green-500 p-2 rounded">Create account</button>
-        <p id="auth-msg" class="text-sm text-yellow-300 mt-2"></p>
-      </div>
+      <div class="stories" id="storiesRow"></div>
 
-    </section>
+      <div style="height:8px"></div>
 
-    <!-- MAIN AREA (when logged in) -->
-    <section id="main-area" class="hidden max-w-4xl mx-auto">
-      <div class="grid grid-cols-3 gap-6">
-        <!-- Left: actions -->
-        <div class="col-span-1">
-          <div class="bg-slate-800 p-4 rounded mb-4">
-            <h3 class="font-semibold mb-2">Create</h3>
-            <input id="fileInput" type="file" class="mb-2 w-full text-sm" />
-            <input id="post-caption" placeholder="Caption" class="w-full p-2 rounded bg-slate-700 mb-2" />
-            <button onclick="uploadAndCreatePost()" class="w-full bg-emerald-500 p-2 rounded">Upload & Post</button>
-            <p id="upload-msg" class="text-sm text-yellow-300 mt-2"></p>
-          </div>
-
-          <div class="bg-slate-800 p-4 rounded mb-4">
-            <h3 class="font-semibold mb-2">Navigation</h3>
-            <button onclick="window.state.viewing='feed'; loadFeed();" class="w-full mb-2 p-2 rounded bg-gray-700">Feed</button>
-            <button onclick="window.state.viewing='reels';alert('Reels UI coming soon')" class="w-full mb-2 p-2 rounded bg-gray-700">Reels</button>
-            <button onclick="window.state.viewing='messages';alert('Open Messages from posts or search users to chat')" class="w-full mb-2 p-2 rounded bg-gray-700">Messages</button>
-            <button onclick="window.state.viewing='profile';alert('Profile page coming soon')" class="w-full p-2 rounded bg-gray-700">Profile</button>
-          </div>
+      <div class="composer">
+        <textarea id="postText" placeholder="Share a photo or video... (caption, tags)"></textarea>
+        <div class="row">
+          <input id="fileInput" type="file" accept="image/*,video/*" />
+          <input id="locationInput" placeholder="Location" />
+          <input id="tagsInput" placeholder="tags: movies,music" />
         </div>
-
-        <!-- Center: feed -->
-        <div class="col-span-1">
-          <div id="feed"></div>
-        </div>
-
-        <!-- Right: users & notifications -->
-        <div class="col-span-1">
-          <div class="bg-slate-800 p-4 rounded mb-4">
-            <h3 class="font-semibold mb-2">Discover Users</h3>
-            <div id="discover"></div>
-            <button onclick="renderDiscover()" class="mt-2 w-full bg-cyan-500 p-2 rounded">Refresh</button>
-          </div>
-
-          <div class="bg-slate-800 p-4 rounded">
-            <h3 class="font-semibold mb-2">Notifications</h3>
-            <div id="notifications"></div>
-            <button onclick="renderNotifications()" class="mt-2 w-full bg-yellow-500 p-2 rounded">Load</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Chat Modal -->
-    <div id="chat-modal" class="hidden fixed inset-0 flex items-end justify-center bg-black/50 p-4">
-      <div class="bg-slate-900 w-full max-w-xl rounded p-4">
-        <div class="flex justify-between mb-2">
-          <div id="chat-with" class="font-semibold"></div>
-          <button onclick="closeChat()" class="text-red-400">Close</button>
-        </div>
-        <div id="messages-list" class="h-60 overflow-auto bg-slate-800 p-3 rounded mb-2"></div>
-        <div class="flex gap-2">
-          <input id="send-to" data-to="" placeholder="Message" class="flex-1 p-2 rounded bg-slate-700" />
-          <button onclick="sendMessage()" class="bg-cyan-500 p-2 rounded">Send</button>
+        <div class="media-preview" id="mediaPreview"></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="postBtn" class="btn primary">Post</button>
+          <button id="storyBtn" class="btn">Add Story</button>
+          <button id="reelBtn" class="btn">Create Reel</button>
+          <button id="liveBtn" class="btn">Go Live</button>
         </div>
       </div>
     </div>
 
-  </main>
+    <!-- Feed area -->
+    <div id="feedList"></div>
 
-  <script>
-    // helper UI renders for discover & notifications (simple implementations)
-    async function renderDiscover() {
-      const d = document.getElementById('discover'); d.innerHTML = '';
-      const { data } = await supabase.from('profiles').select('*').limit(10);
-      data.forEach(u => {
-        const div = document.createElement('div');
-        div.className = 'flex items-center gap-2 mb-2';
-        div.innerHTML = `<img src='${u.avatar_url||'https://via.placeholder.com/40'}' class='w-10 h-10 rounded-full' /><div class='flex-1'><div class='font-semibold'>${u.username}</div></div><button onclick="openChat('${u.id}','${u.username}')" class='text-sm underline'>Chat</button>`;
-        d.appendChild(div);
-      });
-    }
+  </section>
 
-    async function renderNotifications() {
-      const n = document.getElementById('notifications'); n.innerHTML = '';
-      if (!window.state.user) { n.textContent = 'Login to see notifications'; return; }
-      const { data } = await supabase.from('notifications').select(`*, actor:profiles(username)`).eq('user_id', window.state.user.id).order('created_at', { ascending: false }).limit(20);
-      if (!data || !data.length) { n.textContent = 'No notifications yet'; return; }
-      data.forEach(nt => {
-        const el = document.createElement('div');
-        el.className = 'mb-2 text-sm bg-slate-800 p-2 rounded';
-        el.textContent = `${nt.actor?.username || 'Someone'} ${nt.type} ${nt.meta? ' — ' + nt.meta : ''}`;
-        n.appendChild(el);
+  <!-- RIGHT: sidebar -->
+  <aside class="sidebar">
+
+    <div class="card mini-card">
+      <div style="flex:1">
+        <div style="font-weight:700">Shubham</div>
+        <div class="small">@filmydj</div>
+      </div>
+      <button id="openDMBtn" class="big-btn">DM</button>
+    </div>
+
+    <div class="card">
+      <strong>Reels</strong>
+      <div style="height:8px"></div>
+      <div class="reels-grid" id="reelsGrid"></div>
+    </div>
+
+    <div class="card">
+      <strong>Shop</strong>
+      <div class="small">Products for creators</div>
+      <div id="shopList"></div>
+      <div style="height:8px"></div>
+      <button id="addProductBtn" class="btn">Add Product (demo)</button>
+    </div>
+
+    <div class="card">
+      <strong>Creator Dashboard</strong>
+      <div class="small" style="margin-top:6px">Posts: <span id="statPosts">0</span> • Reels: <span id="statReels">0</span></div>
+      <div style="margin-top:8px">
+        <button id="insightsBtn" class="btn">Insights</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <strong>Notes</strong>
+      <textarea id="notesArea" style="width:100%;min-height:80px;background:rgba(255,255,255,0.02);border-radius:8px;padding:8px;border:0;color:var(--white)"></textarea>
+    </div>
+
+  </aside>
+</main>
+
+<!-- DM modal -->
+<div id="dmModal" style="display:none" class="overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong>Direct Messages</strong>
+      <div>
+        <button id="closeDm" class="btn">Close</button>
+      </div>
+    </div>
+    <div id="dmList" style="margin-top:10px;max-height:360px;overflow:auto"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input id="dmTo" placeholder="to user id" style="flex:1" />
+      <input id="dmText" placeholder="message" style="flex:2" />
+      <button id="sendDm" class="btn primary">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Story viewer modal -->
+<div id="storyViewer" style="display:none" class="overlay">
+  <div class="modal" id="storyContent"></div>
+</div>
+
+<script>
+/* ======================
+   filmydj — single file JS
+   frontend-only demo (localStorage)
+   ====================== */
+
+(() => {
+  const STORAGE_KEY = 'filmydj_demo_v1';
+  const nowISO = () => new Date().toISOString();
+  const hoursFromNow = h => new Date(Date.now() + h*3600*1000).toISOString();
+
+  // initial state
+  let state = {
+    user: { id:'u1', name:'Shubham', handle:'@filmydj' },
+    posts: [],
+    stories: [],
+    reels: [],
+    dms: [],
+    shop: [],
+    notes: []
+  };
+
+  function load(){
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw) state = JSON.parse(raw);
+    } catch(e){ console.warn(e) }
+  }
+  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+  // minimal helpers
+  function uid(prefix='id'){ return prefix+'_'+Math.random().toString(36).slice(2,9); }
+  function q(id){ return document.getElementById(id); }
+  function el(tag, attrs={}, children=''){ const d=document.createElement(tag); for(const k in attrs) d.setAttribute(k, attrs[k]); if(children) d.innerHTML = children; return d; }
+
+  // DOM refs
+  const fileInput = q('fileInput'), mediaPreview=q('mediaPreview'), postText=q('postText'), tagsInput=q('tagsInput'), locationInput=q('locationInput');
+  const postBtn=q('postBtn'), storyBtn=q('storyBtn'), reelBtn=q('reelBtn'), liveBtn=q('liveBtn');
+  const storiesRow=q('storiesRow'), feedList=q('feedList'), reelsGrid=q('reelsGrid');
+  const notesArea=q('notesArea'), addProductBtn=q('addProductBtn'), shopList=q('shopList');
+  const openDMBtn=q('openDMBtn'), dmModal=q('dmModal'), dmList=q('dmList'), closeDm=q('closeDm'), sendDm=q('sendDm'), dmTo=q('dmTo'), dmText=q('dmText');
+  const storyViewer=q('storyViewer'), storyContent=q('storyContent');
+  const statPosts=q('statPosts'), statReels=q('statReels'), searchInput=q('searchInput'), insightsBtn=q('insightsBtn');
+
+  // preview file selected
+  let currentMedia = null;
+  fileInput.addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f){ currentMedia=null; mediaPreview.innerHTML=''; return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      currentMedia = { name:f.name, type:f.type, dataUrl:ev.target.result };
+      renderMediaPreview();
+    };
+    reader.readAsDataURL(f);
+  });
+  function renderMediaPreview(){
+    if(!currentMedia){ mediaPreview.innerHTML=''; return; }
+    if(currentMedia.type.startsWith('image')) mediaPreview.innerHTML = '<img src="'+currentMedia.dataUrl+'">';
+    else mediaPreview.innerHTML = '<video src="'+currentMedia.dataUrl+'" controls style="width:100%;border-radius:8px"></video>';
+  }
+
+  // create post
+  postBtn.addEventListener('click', ()=>{
+    const text = postText.value.trim();
+    const tags = tagsInput.value.split(',').map(s=>s.trim()).filter(Boolean);
+    const loc = locationInput.value.trim();
+    if(!text && !currentMedia) return alert('Add caption or media');
+    const p = { id:uid('post'), user:state.user, text, tags, location:loc, media: currentMedia, likes:0, createdAt:nowISO() };
+    state.posts.unshift(p); save(); resetComposer(); renderAll();
+  });
+
+  // create story
+  storyBtn.addEventListener('click', ()=>{
+    if(!currentMedia) return alert('Add media for story');
+    const caption = postText.value.trim();
+    const s = { id:uid('story'), user:state.user, media:currentMedia, caption, createdAt:nowISO(), expiresAt:hoursFromNow(24) };
+    state.stories.unshift(s); save(); resetComposer(); renderAll();
+  });
+
+  // create reel
+  reelBtn.addEventListener('click', ()=>{
+    if(!currentMedia) return alert('Add media for reel');
+    const caption = postText.value.trim();
+    const r = { id:uid('reel'), user:state.user, media:currentMedia, caption, likes:0, createdAt:nowISO() };
+    state.reels.unshift(r); save(); resetComposer(); renderAll();
+  });
+
+  liveBtn.addEventListener('click', ()=>{
+    alert('Live streaming is a placeholder here. Integrate a provider (Agora/Twilio/Mediasoup) for production.');
+  });
+
+  function resetComposer(){ postText.value=''; tagsInput.value=''; locationInput.value=''; fileInput.value=''; currentMedia=null; mediaPreview.innerHTML=''; }
+
+  // render stories, feed, reels, shop
+  function renderStories(){
+    // remove expired
+    const now = nowISO();
+    state.stories = state.stories.filter(s => s.expiresAt > now);
+    storiesRow.innerHTML='';
+    if(state.stories.length===0){ storiesRow.innerHTML = '<div class="small">No stories yet</div>'; return; }
+    state.stories.forEach(s=>{
+      const d = el('div','',{});
+      d.className='story';
+      const im = el('img',{src:s.media.dataUrl, alt:'story'});
+      d.appendChild(im);
+      d.addEventListener('click', ()=> openStory(s));
+      storiesRow.appendChild(d);
+    });
+  }
+
+  function openStory(st){
+    storyContent.innerHTML = '';
+    const head = el('div','',`<div style="display:flex;align-items:center;gap:10px"><div style="font-weight:700">${st.user.name}</div><div class="small" style="margin-left:8px">${new Date(st.createdAt).toLocaleString()}</div></div>`);
+    const mediaWrap = el('div','');
+    if(st.media.type.startsWith('image')) mediaWrap.innerHTML = '<img src="'+st.media.dataUrl+'" style="width:100%;border-radius:8px">';
+    else mediaWrap.innerHTML = '<video src="'+st.media.dataUrl+'" controls style="width:100%;border-radius:8px"></video>';
+    const footer = el('div','',`<div style="margin-top:8px;color:var(--muted)">${st.caption||''}</div><div style="margin-top:6px;color:var(--muted);font-size:13px">Expires: ${new Date(st.expiresAt).toLocaleString()}</div>`);
+    storyContent.appendChild(head); storyContent.appendChild(mediaWrap); storyContent.appendChild(footer);
+    storyViewer.style.display='flex';
+  }
+
+  storyViewer.addEventListener('click', (e)=>{ if(e.target===storyViewer) storyViewer.style.display='none' });
+
+  function renderFeed(filter=''){
+    feedList.innerHTML='';
+    const posts = filter ? state.posts.filter(p=>(p.text||'').toLowerCase().includes(filter) || (p.tags||[]).join(' ').toLowerCase().includes(filter)) : state.posts;
+    if(posts.length===0){ feedList.innerHTML='<div class="card"><div class="small">No posts yet</div></div>'; return; }
+    posts.forEach(p=>{
+      const container = el('div'); container.className='post card';
+      const meta = el('div','',`<div class="meta"><div class="avatar"></div><div style="margin-left:8px"><div style="font-weight:700">${p.user.name}</div><div class="small">${new Date(p.createdAt).toLocaleString()}</div></div></div>`);
+      container.appendChild(meta);
+      const content = el('div'); content.className='content';
+      if(p.media){
+        if(p.media.type.startsWith('image')) content.innerHTML = '<img src="'+p.media.dataUrl+'">';
+        else content.innerHTML = '<video src="'+p.media.dataUrl+'" controls></video>';
+      }
+      content.innerHTML += `<div style="padding:8px 0">${escapeHtml(p.text||'')}</div>`;
+      if(p.location) content.innerHTML += `<div class="small">📍 ${escapeHtml(p.location)}</div>`;
+      if(p.tags && p.tags.length) content.innerHTML += `<div style="margin-top:6px">${p.tags.map(t=>'<span style="background:rgba(255,255,255,0.04);padding:4px 8px;border-radius:8px;margin-right:6px;font-size:12px">'+escapeHtml(t)+'</span>').join('')}</div>`;
+      content.innerHTML += `<div class="actions"><button class="btn" data-like="${p.id}">♡</button><button class="btn" data-share="${p.id}">Share</button><button class="btn" data-tag="${p.id}">Tag Product</button> <span style="margin-left:8px" class="small">${p.likes} likes</span></div>`;
+      container.appendChild(content);
+      feedList.appendChild(container);
+
+      // actions
+      container.querySelector('[data-like]').addEventListener('click', ()=>{
+        p.likes = (p.likes||0)+1; save(); renderAll();
       });
+      container.querySelector('[data-share]').addEventListener('click', ()=> {
+        const text = prompt('Share message (demo)');
+        if(text) alert('Shared: '+text);
+      });
+      container.querySelector('[data-tag]').addEventListener('click', ()=>{
+        const prodId = prompt('Enter product id to tag (demo). Use from Shop list shown in sidebar.');
+        if(!prodId) return;
+        // attach product tag to post (demo)
+        p.productTag = prodId; save(); renderAll();
+      });
+    });
+  }
+
+  function renderReels(){
+    reelsGrid.innerHTML='';
+    if(state.reels.length===0){ reelsGrid.innerHTML='<div class="small">No reels yet</div>'; return; }
+    state.reels.slice(0,9).forEach(r=>{
+      const img = el('img',{src: r.media ? r.media.dataUrl : '', class:'reel-thumb'});
+      if(!r.media) img.style.background='#122';
+      const wrap = el('div'); wrap.appendChild(img);
+      wrap.addEventListener('click', ()=> {
+        const w = window.open('','_blank','width=420,height=720');
+        if(!w) return alert('Pop-up blocked');
+        w.document.write('<html><body style="margin:0;background:#000;color:#fff"><div style="padding:8px"><h3>'+escapeHtml(r.caption||'Reel')+'</h3></div>'+ (r.media && r.media.type.startsWith('image') ? '<img src="'+r.media.dataUrl+'" style="width:100%"/>' : '<video src="'+(r.media? r.media.dataUrl : '')+'" controls style="width:100%"></video>') +'</body></html>');
+      });
+      reelsGrid.appendChild(wrap);
+    });
+  }
+
+  // shop
+  addProductBtn.addEventListener('click', ()=> {
+    const title = prompt('Product title','FilmyDJ Hoodie'); if(!title) return;
+    const price = prompt('Price (INR)','799'); if(!price) return;
+    const pid = uid('prod');
+    state.shop.unshift({ id:pid, title, price:Number(price), createdAt: nowISO() }); save(); renderShop();
+  });
+
+  function renderShop(){
+    shopList.innerHTML='';
+    if(state.shop.length===0){ shopList.innerHTML='<div class="small">No products</div>'; return; }
+    state.shop.forEach(p=>{
+      const d = el('div','',`<div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:700">${escapeHtml(p.title)}</div><div class="small">₹ ${p.price}</div></div><div><button class="btn" data-buy="${p.id}">Buy</button></div></div>`);
+      shopList.appendChild(d);
+      d.querySelector('[data-buy]').addEventListener('click', ()=> alert('Checkout demo: '+p.title));
+    });
+  }
+
+  // DMs
+  openDMBtn.addEventListener('click', ()=>{ dmModal.style.display='flex'; renderDMs(); });
+  closeDm.addEventListener('click', ()=> dmModal.style.display='none');
+  sendDm.addEventListener('click', ()=> {
+    const to = dmTo.value.trim() || 'user2';
+    const txt = dmText.value.trim();
+    if(!txt) return;
+    state.dms.push({ id:uid('dm'), from: state.user.id, to, text: txt, createdAt: nowISO() }); save(); dmText.value=''; renderDMs();
+  });
+  function renderDMs(){ dmList.innerHTML=''; if(state.dms.length===0){ dmList.innerHTML='<div class="small">No messages</div>'; return; } state.dms.slice().reverse().forEach(m=> { const div=el('div','',`<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,0.02)"><div style="font-weight:700">${m.from} → ${m.to}</div><div style="color:var(--muted)">${escapeHtml(m.text)}</div><div class="small">${new Date(m.createdAt).toLocaleString()}</div></div>`); dmList.appendChild(div); }); }
+
+  // notes area
+  notesArea.addEventListener('input', ()=> { state.notes = notesArea.value.split('\\n'); save(); });
+
+  // helpers
+  function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+  // search filter
+  searchInput.addEventListener('input', ()=> {
+    const q = searchInput.value.trim().toLowerCase();
+    renderFeed(q);
+  });
+
+  insightsBtn.addEventListener('click', ()=> alert('Insights demo: Posts '+state.posts.length+' • Reels '+state.reels.length+' • Shop items '+state.shop.length));
+
+  // initial demo content (if empty)
+  function seedDemo(){
+    if(state.posts.length===0 && state.reels.length===0 && state.shop.length===0){
+      state.posts.unshift({
+        id:uid('post'), user:state.user, text:'Welcome to filmydj — prototype', tags:['welcome','filmydj'], location:'Mumbai', media:null, likes:4, createdAt: nowISO()
+      });
+      state.reels.unshift({ id:uid('reel'), user:state.user, media:null, caption:'Sample Reel (add your media)', likes:3, createdAt: nowISO() });
+      state.shop.unshift({ id:uid('prod'), title:'FilmyDJ Sticker Pack', price:199, createdAt:nowISO() });
+      save();
     }
-  </script>
+  }
+
+  // render everything
+  function renderAll(){ renderStories(); renderFeed(); renderReels(); renderShop(); updateStats(); notesArea.value = (state.notes||[]).join('\\n'); }
+  function updateStats(){ statPosts.textContent = state.posts.length; statReels.textContent = state.reels.length; }
+
+  // load & init
+  load(); seedDemo(); renderAll();
+
+  // close story viewer on click outside
+  document.querySelectorAll('.overlay').forEach(o=> o.addEventListener('click', (e)=> { if(e.target===o) o.style.display='none' }));
+
+  // expose small debug
+  window.filmydj = { state, save, renderAll };
+
+})();
+</script>
 
 </body>
 </html>
