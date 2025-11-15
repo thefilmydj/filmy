@@ -133,7 +133,17 @@
 
   <!-- RIGHT: sidebar -->
   <aside class="sidebar">
-
+/* SIDEBAR */
+.sidebar {
+  width: 250px;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  background: #ffffff;
+  color: #333;
+  padding: 100px 20px;
+  border-right: 1px solid #e5e5e5;
+}
     <div class="card mini-card">
       <div style="flex:1">
         <div style="font-weight:700">Shubham</div>
