@@ -12,17 +12,19 @@
     - All data stored in localStorage (frontend-only). For production add backend, storage, auth, streaming provider.
   -->
 
-  <style>
-    /* ----- Base & theme ----- */
-    :root{
-      --bg:#0f1724;
-      --panel:#0b1220;
-      --muted:#9aa4b2;
-      --accent1: #f09433;
-      --accent2: #e6683c;
-      --white:#f7f9fb;
-      --card:#0e1720;
-    }
+ :root{
+  --bg:#0f1724;        /* Background as is (dark modern look) */
+  --panel:#0b1220;     /* Same panel, looks good with Insta colors */
+  --muted:#cfcfd2;     /* Softer grey for better contrast */
+
+  /* Instagram Gradient Colors */
+  --accent1:#f09433;   /* Start: warm orange */
+  --accent2:#bc1888;   /* End: deep purple-pink */
+
+  --white:#ffffff;     /* Brighter white for insta style */
+  --card:#151d2b;      /* Slightly lighter for cards */
+}
+
     *{box-sizing:border-box;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
     html,body{height:100%;margin:0;background:linear-gradient(180deg,#021024 0%, #071428 40%, #081029 100%);color:var(--white);-webkit-font-smoothing:antialiased}
     .app{max-width:1100px;margin:18px auto;padding:12px;display:grid;grid-template-columns:1fr 340px;gap:18px;}
