@@ -82,7 +82,7 @@
     <img src="logo.png" alt="logo" class="logo" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2256%22 height=%2256%22><rect rx=%2212%22 width=%2256%22 height=%2256%22 fill=%22%23011115%22/><text x=%2228%22 y=%2234%22 font-size=%2216%22 text-anchor=%22middle%22 fill=%22%23fff%22 font-family=%22Arial%22>FD</text></svg>'">
     <div>
       <div class="app-title">filmydj</div>
-      <div class="small">Your visual stage</div>
+      <div class="small">thefilmydj_</div>
     </div>
   </div>
 
