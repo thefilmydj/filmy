@@ -11,7 +11,9 @@
     - Place your final logo image as "logo.png" in same folder to show on header
     - All data stored in localStorage (frontend-only). For production add backend, storage, auth, streaming provider.
   -->
-:root{
+<style>
+    /* ----- Base & theme ----- */
+    :root{
   --bg:#0d1b2a;
   --panel:#1b263b;
   --muted:#9baec8;
@@ -20,7 +22,7 @@
   --white:#e0eaf5;
   --card:#1e2d40;
 }
-
+  
   *{box-sizing:border-box;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
     html,body{height:100%;margin:0;background:linear-gradient(180deg,#021024 0%, #071428 40%, #081029 100%);color:var(--white);-webkit-font-smoothing:antialiased}
     .app{max-width:1100px;margin:18px auto;padding:12px;display:grid;grid-template-columns:1fr 340px;gap:18px;}
