@@ -38,7 +38,7 @@
     .left-col{display:flex;flex-direction:column;gap:12px}
     .card{background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);box-shadow:0 4px 20px rgba(2,6,23,.6)}
     .stories{display:flex;gap:12px;overflow:auto;padding:6px}
-    .story{width:82px;height:82px;border-radius:50%;flex-shrink:0;border:3px solid radial-gradient(circle at 30% 20%, #ffefba, #ffc3a0);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;background:#222}
+    .story{width:82px;height:82px;border-radius:50%;flex-shrink:0;border:3px solid radial-gradient(circle at 30% 20%,  #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;background:#222}
     .story img{width:100%;height:100%;object-fit:cover}
     .composer textarea{width:100%;min-height:70px;padding:10px;border-radius:10px;border:0;background:rgba(255,255,255,0.03);color:var(--white);resize:vertical}
     .composer .row{display:flex;gap:8px;margin-top:8px;align-items:center}
