@@ -1,646 +1,383 @@
-/*
-FilmYDJ - Single-file React app (GitHub Pages friendly)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TheFilmyDJ Portal — Social</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-How to use:
-1. Create a new GitHub repo (e.g. filmydj-site).
-2. Add this file as `src/App.jsx` in a Create React App or Vite React project,
-   or paste into a project scaffold. This component is the entire app.
-3. Install dependencies (if using CRA/Vite): none required beyond React.
-4. Build & publish to GitHub Pages via gh-pages or deploy the built site to GitHub Pages.
+    // ---------------------------
+    // 🔐 Supabase config (use your existing values)
+    // ---------------------------
+    const SUPABASE_URL = "https://egdgitzfonjkqtgejwdj.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnZGdpdHpmb25qa3F0Z2Vqd2RqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5NjgxMjcsImV4cCI6MjA3ODU0NDEyN30.3bpjskODWgya0hSQDLmddJ9w1evCZNZ5_MU9oDYiF0U";
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-Notes / limitations:
-- This is a frontend-only, client-side demo implementing many features locally
-  (using localStorage and in-browser APIs). For a full production site you'd
-  need a backend (auth, media storage, streaming server, payments, search indexing).
-- Live streaming is simulated using webcam (getUserMedia). Actual multi-user live
-  requires a signalling server and media server.
-
-Features included (mocked / local):
-- Posts: photo/video upload, location tag, simple CSS filters, tagging people (by username)
-- Stories: ephemeral posts that expire after 24 hours, with music (audio URL), polls & quizzes
-- Reels: short video recording, upload, add music and collaborators
-- Live: start/stop local webcam stream (simulated live)
-- Explore: search posts by keywords, users, hashtags
-- DMs: simple direct message threads stored locally
-- Notes: short profile status visible on avatar hover
-- Shop: product listing, product tags, quick 'buy' simulation
-- Highlights: save stories permanently to profile
-- Professional Dashboard: simple insights (counts)
-- Interactive stickers: Polls, Quizzes inside Stories
-
-This file exports a default React component `App`.
-*/
-
-import React, { useEffect, useState, useRef } from "react";
-
-// Utility helpers
-const uid = () => Math.random().toString(36).slice(2, 9);
-const now = () => Date.now();
-const HOUR = 3600 * 1000;
-const DAY = 24 * HOUR;
-
-// localStorage helpers
-const STORAGE_KEY = "filmydj_data_v1";
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
-}
-function saveData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-// Initial demo data
-function defaultData() {
-  const userId = "user_main";
-  return {
-    users: {
-      [userId]: {
-        id: userId,
-        username: "filmydj",
-        displayName: "FilmyDJ",
-        avatar: null,
-        notes: "Online — DJing today!",
-        isProfessional: true,
-        followers: ["u_alice", "u_bob"],
-        following: ["u_alice"],
-        highlights: [],
-      },
-      u_alice: { id: "u_alice", username: "alice", displayName: "Alice Singer", avatar: null, notes: "Coffee + Music" },
-      u_bob: { id: "u_bob", username: "bob", displayName: "Bob Producer", avatar: null, notes: "Beats maker" },
-    },
-    posts: [
-      // Each post: {id, userId, type:"image"|"video", src, caption, tags:[], location, createdAt}
-    ],
-    stories: [
-      // {id,userId, type, src, createdAt, expiresAt, stickers: []}
-    ],
-    reels: [],
-    lives: [],
-    dms: {}, // {threadId: {id, participants:[ids], messages:[{id,userId,text,createdAt}]}}
-    shop: [
-      { id: "p1", title: "DJ Headphones", price: 49.99, tags: ["audio","gear"], image: null },
-      { id: "p2", title: "Vinyl Bundle", price: 19.99, tags: ["music","collectible"], image: null },
-    ],
-  };
-}
-
-// Simple image uploader -> dataURL
-function readFileAsDataURL(file) {
-  return new Promise((res, rej) => {
-    const reader = new FileReader();
-    reader.onload = () => res(reader.result);
-    reader.onerror = rej;
-    reader.readAsDataURL(file);
-  });
-}
-
-// App Component
-export default function App() {
-  // load or init
-  const [data, setData] = useState(() => loadData() || defaultData());
-  const mainUserId = "user_main";
-  const mainUser = data.users[mainUserId];
-
-  useEffect(() => {
-    saveData(data);
-  }, [data]);
-
-  // Navigation
-  const [view, setView] = useState("feed");
-
-  // Post creation state
-  const [postUploading, setPostUploading] = useState(false);
-  const [postFile, setPostFile] = useState(null);
-  const [postCaption, setPostCaption] = useState("");
-  const [postLocation, setPostLocation] = useState("");
-  const [postFilter, setPostFilter] = useState("none");
-  const [postTags, setPostTags] = useState("");
-
-  // Story composer
-  const [storyFile, setStoryFile] = useState(null);
-  const [storyMusic, setStoryMusic] = useState("");
-  const [storyStickers, setStoryStickers] = useState([]);
-
-  // Reel composer
-  const [reelFile, setReelFile] = useState(null);
-  const [reelMusic, setReelMusic] = useState("");
-  const [reelCollaborators, setReelCollaborators] = useState("");
-
-  // DM
-  const [dmTo, setDmTo] = useState("");
-  const [dmText, setDmText] = useState("");
-  const [selectedThread, setSelectedThread] = useState(null);
-
-  // Search
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-
-  // Live
-  const [isLive, setIsLive] = useState(false);
-  const localVideoRef = useRef(null);
-  const localStreamRef = useRef(null);
-
-  // Professional dashboard insights
-  const dashboard = {
-    followers: mainUser.followers.length,
-    posts: data.posts.filter((p) => p.userId === mainUserId).length,
-    stories: data.stories.filter((s) => s.userId === mainUserId).length,
-    reels: data.reels.filter((r) => r.userId === mainUserId).length,
-  };
-
-  // Helpers to update data state immutably
-  function updateData(mutator) {
-    setData((d) => {
-      const copy = JSON.parse(JSON.stringify(d));
-      mutator(copy);
-      return copy;
-    });
-  }
-
-  // Post upload flow
-  async function handleCreatePost(e) {
-    e.preventDefault();
-    if (!postFile) return alert("Choose a photo or video first.");
-    setPostUploading(true);
-    const src = await readFileAsDataURL(postFile);
-    const newPost = {
-      id: uid(),
-      userId: mainUserId,
-      type: postFile.type.startsWith("video") ? "video" : "image",
-      src,
-      caption: postCaption,
-      tags: postTags.split(",").map((t) => t.trim()).filter(Boolean),
-      location: postLocation,
-      createdAt: now(),
+    // ---------------------------
+    // App state helpers
+    // ---------------------------
+    window.state = {
+      user: null,
+      profile: null,
+      feed: [],
+      viewing: 'feed' // feed | reels | upload | messages | profile | settings
     };
-    updateData((d) => d.posts.unshift(newPost));
-    setPostFile(null);
-    setPostCaption("");
-    setPostLocation("");
-    setPostTags("");
-    setPostFilter("none");
-    setPostUploading(false);
-    setView("feed");
-  }
 
-  // Story creator
-  async function handleCreateStory(e) {
-    e.preventDefault();
-    if (!storyFile) return alert("Choose media for story.");
-    const src = await readFileAsDataURL(storyFile);
-    const createdAt = now();
-    const expiresAt = createdAt + DAY; // 24 hours
-    const story = {
-      id: uid(),
-      userId: mainUserId,
-      type: storyFile.type.startsWith("video") ? "video" : "image",
-      src,
-      createdAt,
-      expiresAt,
-      stickers: storyStickers.slice(),
-      music: storyMusic,
-    };
-    updateData((d) => d.stories.unshift(story));
-    setStoryFile(null);
-    setStoryMusic("");
-    setStoryStickers([]);
-    setView("feed");
-  }
+    // ---------------------------
+    // AUTH: signup, login, logout
+    // ---------------------------
+    window.signup = async function () {
+      const email = document.getElementById('su-email').value;
+      const password = document.getElementById('su-password').value;
+      const username = document.getElementById('su-username').value.trim();
+      const msg = document.getElementById('auth-msg');
+      msg.textContent = '⏳ Creating account...';
 
-  // Save story to highlights
-  function saveToHighlights(storyId, title = "Highlight") {
-    updateData((d) => {
-      d.users[mainUserId].highlights.push({ id: uid(), storyId, title });
-    });
-  }
+      if (!email || !password || !username) { msg.textContent = 'Fill all fields'; return; }
 
-  // Reel creator
-  async function handleCreateReel(e) {
-    e.preventDefault();
-    if (!reelFile) return alert("Choose a video for reel.");
-    const src = await readFileAsDataURL(reelFile);
-    const reel = {
-      id: uid(),
-      userId: mainUserId,
-      src,
-      music: reelMusic,
-      collaborators: reelCollaborators.split(",").map((s) => s.trim()).filter(Boolean),
-      createdAt: now(),
-    };
-    updateData((d) => d.reels.unshift(reel));
-    setReelFile(null);
-    setReelMusic("");
-    setReelCollaborators("");
-    setView("reels");
-  }
+      // check username uniqueness in profiles
+      const { data: existing } = await supabase.from('profiles').select('id').eq('username', username).limit(1);
+      if (existing && existing.length) { msg.textContent = '❌ Username already taken'; return; }
 
-  // DM send
-  function handleSendDM(e) {
-    e.preventDefault();
-    if (!dmTo || !dmText) return alert("Choose recipient and write a message.");
-    const recipient = Object.values(data.users).find(u => u.username === dmTo || u.id === dmTo);
-    if (!recipient) return alert("Recipient not found (use username).");
-    // find or create thread
-    const participants = [mainUserId, recipient.id].sort();
-    const threadId = participants.join("_");
-    updateData((d) => {
-      d.dms[threadId] = d.dms[threadId] || { id: threadId, participants, messages: [] };
-      d.dms[threadId].messages.push({ id: uid(), userId: mainUserId, text: dmText, createdAt: now() });
-    });
-    setDmText("");
-    setView("dm");
-    setSelectedThread(threadId);
-  }
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) { msg.textContent = '❌ ' + error.message; return; }
 
-  // Search
-  function runSearch(q) {
-    const ql = q.trim().toLowerCase();
-    if (!ql) return setSearchResults([]);
-    const postMatches = data.posts.filter(p => (p.caption || "").toLowerCase().includes(ql) || (p.tags||[]).join(",").includes(ql) || (p.location||"").toLowerCase().includes(ql));
-    const userMatches = Object.values(data.users).filter(u => (u.username + " " + (u.displayName||"")).toLowerCase().includes(ql));
-    setSearchResults([...userMatches, ...postMatches]);
-  }
+      // insert profile row
+      const userId = data.user?.id || null;
+      if (userId) {
+        await supabase.from('profiles').insert([{ id: userId, username, display_name: username }]);
+      }
 
-  // Live start/stop — local webcam preview (simulated live)
-  async function startLive() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      setIsLive(true);
-      updateData(d => d.lives.unshift({ id: uid(), userId: mainUserId, startedAt: now(), viewers: 0, streamId: uid() }));
-    } catch (e) {
-      alert("Camera access failed: " + e.message);
+      msg.textContent = '✅ Account created. Please login below.';
     }
-  }
-  function stopLive() {
-    const s = localStreamRef.current;
-    if (s) {
-      s.getTracks().forEach(t => t.stop());
-      localStreamRef.current = null;
+
+    window.login = async function () {
+      const email = document.getElementById('li-email').value;
+      const password = document.getElementById('li-password').value;
+      const lmsg = document.getElementById('login-msg');
+      lmsg.textContent = '⏳ Logging in...';
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) { lmsg.textContent = '❌ ' + error.message; return; }
+
+      state.user = data.user;
+      await loadProfile();
+      lmsg.textContent = '';
+      renderApp();
     }
-    setIsLive(false);
-  }
 
-  // Shop buy simulation
-  function buyProduct(productId) {
-    const p = data.shop.find(s => s.id === productId);
-    if (!p) return;
-    alert(`Purchased ${p.title} for $${p.price} (simulated).`);
-  }
+    window.logout = async function () {
+      await supabase.auth.signOut();
+      state.user = null; state.profile = null;
+      renderApp();
+    }
 
-  // Story expiration cleanup
-  useEffect(() => {
-    const t = setInterval(() => {
-      const nowTime = now();
-      updateData((d) => {
-        d.stories = d.stories.filter(s => s.expiresAt > nowTime);
+    // ---------------------------
+    // Load profile and feed
+    // ---------------------------
+    async function loadProfile() {
+      if (!state.user) return;
+      const { data } = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
+      state.profile = data;
+      await loadFeed();
+    }
+
+    async function loadFeed() {
+      // get latest posts (posts table expected)
+      const { data } = await supabase.from('posts').select(`*, profiles(username, display_name, avatar_url)`).order('created_at', { ascending: false }).limit(50);
+      state.feed = data || [];
+      renderFeed();
+    }
+
+    // ---------------------------
+    // Upload & Create Post
+    // ---------------------------
+    window.uploadAndCreatePost = async function () {
+      const fileInput = document.getElementById('fileInput');
+      const caption = document.getElementById('post-caption').value;
+      const msg = document.getElementById('upload-msg');
+      if (!fileInput.files.length) { msg.textContent = 'Select a file'; return; }
+      const file = fileInput.files[0];
+      const path = `posts/${Date.now()}_${file.name}`;
+      msg.textContent = '⏳ Uploading...';
+
+      const { data: upData, error: upErr } = await supabase.storage.from('uploads').upload(path, file);
+      if (upErr) { msg.textContent = '❌ Upload failed: ' + upErr.message; return; }
+
+      const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
+      const publicUrl = urlData.publicUrl;
+
+      // create post row
+      const { error } = await supabase.from('posts').insert([{ author: state.user.id, file_url: publicUrl, caption }]);
+      if (error) { msg.textContent = '❌ Post creation failed: ' + error.message; return; }
+
+      msg.textContent = '✅ Uploaded & posted!';
+      fileInput.value = '';
+      document.getElementById('post-caption').value = '';
+      await loadFeed();
+    }
+
+    // ---------------------------
+    // Like / Comment / Follow
+    // ---------------------------
+    window.toggleLike = async function (postId) {
+      if (!state.user) { alert('Login first'); return; }
+      // check existing
+      const { data: existing } = await supabase.from('likes').select('*').eq('post_id', postId).eq('user_id', state.user.id).limit(1);
+      if (existing && existing.length) {
+        await supabase.from('likes').delete().eq('id', existing[0].id);
+      } else {
+        await supabase.from('likes').insert([{ post_id: postId, user_id: state.user.id }]);
+        // add notification
+        const post = state.feed.find(p => p.id === postId);
+        if (post && post.author !== state.user.id) {
+          await supabase.from('notifications').insert([{ user_id: post.author, actor_id: state.user.id, type: 'like', meta: JSON.stringify({ post_id: postId }) }]);
+        }
+      }
+      await loadFeed();
+    }
+
+    window.addComment = async function (postId) {
+      const el = document.getElementById('comment-'+postId);
+      const text = el.value.trim();
+      if (!text || !state.user) return;
+      await supabase.from('comments').insert([{ post_id: postId, user_id: state.user.id, content: text }]);
+      // notify
+      const post = state.feed.find(p => p.id === postId);
+      if (post && post.author !== state.user.id) {
+        await supabase.from('notifications').insert([{ user_id: post.author, actor_id: state.user.id, type: 'comment', meta: JSON.stringify({ post_id: postId }) }]);
+      }
+      el.value = '';
+      await loadFeed();
+    }
+
+    window.toggleFollow = async function (targetId) {
+      if (!state.user) { alert('Login first'); return; }
+      const { data: existing } = await supabase.from('follows').select('*').eq('follower', state.user.id).eq('following', targetId).limit(1);
+      if (existing && existing.length) {
+        await supabase.from('follows').delete().eq('id', existing[0].id);
+      } else {
+        await supabase.from('follows').insert([{ follower: state.user.id, following: targetId }]);
+        await supabase.from('notifications').insert([{ user_id: targetId, actor_id: state.user.id, type: 'follow' }]);
+      }
+      await loadFeed();
+    }
+
+    // ---------------------------
+    // Messaging (basic)
+    // ---------------------------
+    window.openChat = async function (otherId, otherName) {
+      document.getElementById('chat-with').textContent = otherName;
+      document.getElementById('messages-list').innerHTML = '';
+      document.getElementById('chat-modal').classList.remove('hidden');
+      // load last 50 messages between the two
+      const { data } = await supabase.from('messages').select('*').or(`(sender.eq.${state.user.id},recipient.eq.${state.user.id})`).order('created_at', { ascending: true }).limit(200);
+      // simple filter client-side
+      const conv = data.filter(m => (m.sender===state.user.id && m.recipient===otherId) || (m.sender===otherId && m.recipient===state.user.id));
+      conv.forEach(m => {
+        const div = document.createElement('div');
+        div.className = m.sender===state.user.id? 'text-right':'text-left';
+        div.textContent = m.content;
+        document.getElementById('messages-list').appendChild(div);
       });
-    }, 60 * 1000);
-    return () => clearInterval(t);
-  }, []);
+      document.getElementById('send-to').dataset.to = otherId;
+    }
 
-  // Render helpers for media with filters
-  function Media({ item, filter = "none", style = {} }) {
-    const cssFilter = {
-      none: "",
-      bw: "grayscale(1)",
-      vintage: "sepia(0.6) contrast(0.9)",
-      bright: "brightness(1.2) saturate(1.1)",
-    }[filter] || "";
-    if (item.type === "video") return (
-      <video controls style={{ maxWidth: "100%", filter: cssFilter, ...style }} src={item.src} />
-    );
-    return <img alt="post-media" style={{ maxWidth: "100%", filter: cssFilter, ...style }} src={item.src} />;
-  }
+    window.sendMessage = async function () {
+      const to = document.getElementById('send-to').dataset.to;
+      const text = document.getElementById('send-to').value.trim();
+      if (!to || !text) return;
+      await supabase.from('messages').insert([{ sender: state.user.id, recipient: to, content: text }]);
+      document.getElementById('send-to').value = '';
+      // you may reload messages (not implemented fully)
+      alert('Message sent');
+    }
 
-  // UI components (simple)
-  function TopBar() {
-    return (
-      <div className="flex items-center justify-between p-3 border-b">
-        <div className="flex items-center space-x-3">
-          <div className="font-bold text-xl">FilmyDJ</div>
-          <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search users, posts, tags..." className="px-2 py-1 rounded border" />
-          <button onClick={() => runSearch(searchQuery)} className="px-2 py-1 rounded border">Search</button>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button onClick={() => setView("feed")} className="px-2 py-1">Feed</button>
-          <button onClick={() => setView("stories")} className="px-2 py-1">Stories</button>
-          <button onClick={() => setView("reels")} className="px-2 py-1">Reels</button>
-          <button onClick={() => setView("live")} className="px-2 py-1">Live</button>
-          <button onClick={() => setView("dm")} className="px-2 py-1">DMs</button>
-          <button onClick={() => setView("shop")} className="px-2 py-1">Shop</button>
-          <button onClick={() => setView("profile")} className="px-2 py-1">Profile</button>
-        </div>
-      </div>
-    );
-  }
+    window.closeChat = function () { document.getElementById('chat-modal').classList.add('hidden'); }
 
-  function FeedView() {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold mb-2">Create Post</h2>
-        <form onSubmit={handleCreatePost} className="p-3 border rounded space-y-2">
-          <input type="file" accept="image/*,video/*" onChange={(e) => setPostFile(e.target.files?.[0]||null)} />
-          <div className="flex gap-2">
-            <select value={postFilter} onChange={e=>setPostFilter(e.target.value)} className="px-2 py-1 border rounded">
-              <option value="none">No filter</option>
-              <option value="bw">Black & White</option>
-              <option value="vintage">Vintage</option>
-              <option value="bright">Bright</option>
-            </select>
-            <input value={postLocation} onChange={e=>setPostLocation(e.target.value)} placeholder="Location" className="px-2 py-1 border rounded" />
-            <input value={postTags} onChange={e=>setPostTags(e.target.value)} placeholder="tags (comma)" className="px-2 py-1 border rounded" />
-          </div>
-          <textarea value={postCaption} onChange={e=>setPostCaption(e.target.value)} placeholder="Write a caption..." className="w-full p-2 border rounded" />
-          <div className="flex gap-2">
-            <button type="submit" className="px-3 py-1 bg-blue-600 text-white rounded">Post</button>
-            <button type="button" onClick={() => { setPostFile(null); setPostCaption(""); }} className="px-3 py-1 border rounded">Clear</button>
-          </div>
-        </form>
+    // ---------------------------
+    // Render UI
+    // ---------------------------
+    window.renderApp = function () {
+      document.getElementById('auth-area').classList.toggle('hidden', !!state.user);
+      document.getElementById('main-area').classList.toggle('hidden', !state.user);
+      if (state.user) {
+        document.getElementById('top-username').textContent = state.profile?.username || 'You';
+        loadFeed();
+      }
+    }
 
-        <h2 className="text-lg font-semibold my-3">Feed</h2>
-        <div className="space-y-4">
-          {data.posts.length === 0 && <div className="italic text-sm">No posts yet — create one!</div>}
-          {data.posts.map(post => (
-            <div key={post.id} className="border rounded p-3">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="rounded-full bg-gray-300 w-10 h-10 flex items-center justify-center">{data.users[post.userId]?.displayName?.[0]||"U"}</div>
-                <div>
-                  <div className="font-semibold">{data.users[post.userId]?.displayName || post.userId}</div>
-                  <div className="text-xs text-gray-500">{new Date(post.createdAt).toLocaleString()}</div>
-                </div>
-              </div>
-              <div className="mb-2">
-                <Media item={post} filter={postFilter} />
-              </div>
-              <div className="mb-1">{post.caption}</div>
-              <div className="text-sm text-gray-600">{post.tags && post.tags.length ? "#" + post.tags.join(" #") : null}</div>
-              <div className="text-sm text-gray-500">{post.location}</div>
+    function renderFeed() {
+      const container = document.getElementById('feed');
+      container.innerHTML = '';
+      state.feed.forEach(post => {
+        const card = document.createElement('div');
+        card.className = 'bg-slate-800 rounded-lg p-4 mb-4 text-left';
+        const author = post.profiles?.username || 'unknown';
+        const avatar = post.profiles?.avatar_url || 'https://via.placeholder.com/48';
+        card.innerHTML = `
+          <div class='flex items-center gap-3 mb-3'>
+            <img src='${avatar}' class='w-12 h-12 rounded-full' />
+            <div class='flex-1'>
+              <div class='font-semibold'>${author}</div>
+              <div class='text-xs text-gray-300'>${new Date(post.created_at).toLocaleString()}</div>
             </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  function StoriesView() {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold mb-2">Create Story</h2>
-        <form onSubmit={handleCreateStory} className="p-3 border rounded space-y-2">
-          <input type="file" accept="image/*,video/*" onChange={(e)=>setStoryFile(e.target.files?.[0]||null)} />
-          <input value={storyMusic} onChange={e=>setStoryMusic(e.target.value)} placeholder="Music URL (optional)" className="px-2 py-1 border rounded w-full" />
-          <div>
-            <label className="text-sm">Add Sticker: Poll / Quiz</label>
-            <div className="flex gap-2 mt-1">
-              <button type="button" onClick={() => setStoryStickers(s => [...s, { id: uid(), type: 'poll', question: 'Which song?', options: ['A','B'], votes: [0,0] }])} className="px-2 py-1 border rounded">Add Poll</button>
-              <button type="button" onClick={() => setStoryStickers(s => [...s, { id: uid(), type: 'quiz', question: 'Quiz?', options: ['1','2'], answerIndex: 0 }])} className="px-2 py-1 border rounded">Add Quiz</button>
-            </div>
+            <button onclick="toggleFollow('${post.author}')" class='text-sm text-cyan-400 underline'>Follow</button>
           </div>
-          <div className="flex gap-2">
-            <button type="submit" className="px-3 py-1 bg-purple-600 text-white rounded">Share Story</button>
-            <button type="button" onClick={()=>{setStoryFile(null); setStoryStickers([]);}} className="px-3 py-1 border rounded">Clear</button>
+          <div class='mb-3'>
+            ${post.file_url.includes('.mp4')?`<video src='${post.file_url}' controls class='w-full rounded'></video>`:`<img src='${post.file_url}' class='w-full rounded' />`}
           </div>
-        </form>
-
-        <h2 className="text-lg font-semibold my-3">Stories</h2>
-        <div className="flex gap-3 overflow-x-auto pb-3">
-          {data.stories.length === 0 && <div className="italic">No stories yet</div>}
-          {data.stories.map(story => (
-            <div key={story.id} className="w-48 border rounded p-2">
-              <div className="font-semibold mb-1">{data.users[story.userId]?.displayName}</div>
-              <div className="mb-2"><Media item={story} style={{ maxHeight: 180, objectFit: 'cover' }} /></div>
-              <div className="text-xs text-gray-500">Expires: {new Date(story.expiresAt).toLocaleString()}</div>
-              <div className="flex gap-2 mt-2">
-                <button onClick={()=>saveToHighlights(story.id)} className="px-2 py-1 border rounded text-sm">Save Highlight</button>
-                <button onClick={()=>{ /* open story view */ }} className="px-2 py-1 border rounded text-sm">View</button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <h3 className="mt-4 font-semibold">Your Highlights</h3>
-        <div className="space-y-2 mt-2">
-          {mainUser.highlights.length === 0 && <div className="italic">No highlights yet</div>}
-          {mainUser.highlights.map(h => (
-            <div key={h.id} className="border rounded p-2">{h.title} (storyId: {h.storyId})</div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  function ReelsView() {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold mb-2">Create Reel</h2>
-        <form onSubmit={handleCreateReel} className="p-3 border rounded space-y-2">
-          <input type="file" accept="video/*" onChange={(e)=>setReelFile(e.target.files?.[0]||null)} />
-          <input value={reelMusic} onChange={e=>setReelMusic(e.target.value)} placeholder="Music URL" className="px-2 py-1 border rounded w-full" />
-          <input value={reelCollaborators} onChange={e=>setReelCollaborators(e.target.value)} placeholder="Collaborators (usernames comma)" className="px-2 py-1 border rounded w-full" />
-          <div className="flex gap-2">
-            <button className="px-3 py-1 bg-green-600 text-white rounded" type="submit">Upload Reel</button>
+          <div class='mb-2'>${post.caption||''}</div>
+          <div class='flex items-center gap-4 text-sm'>
+            <button onclick="toggleLike(${post.id})" class='px-2 py-1 bg-gray-700 rounded'>Like</button>
+            <button onclick="document.getElementById('comment-box-${post.id}').classList.toggle('hidden')" class='px-2 py-1 bg-gray-700 rounded'>Comment</button>
+            <button onclick="openChat('${post.author}','${author}')" class='px-2 py-1 bg-gray-700 rounded'>Message</button>
           </div>
-        </form>
-
-        <h2 className="text-lg font-semibold my-3">Reels</h2>
-        <div className="space-y-3">
-          {data.reels.length === 0 && <div className="italic">No reels yet</div>}
-          {data.reels.map(r => (
-            <div key={r.id} className="border rounded p-3">
-              <div className="font-semibold">{data.users[r.userId]?.displayName}</div>
-              <video controls src={r.src} style={{ maxWidth: '100%' }} />
-              <div className="text-sm text-gray-600">Music: {r.music}</div>
-              <div className="text-sm">Collab: {r.collaborators.join(', ')}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  function LiveView() {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold mb-2">Live</h2>
-        <div className="flex gap-3">
-          <div className="w-2/3 border rounded p-3">
-            <div className="mb-2">Local preview (simulated live):</div>
-            <video ref={localVideoRef} autoPlay muted style={{ width: '100%', background: '#000' }} />
-            <div className="mt-2 flex gap-2">
-              {!isLive ? <button onClick={startLive} className="px-3 py-1 bg-red-600 text-white rounded">Start Live</button> : <button onClick={stopLive} className="px-3 py-1 border rounded">Stop Live</button>}
-            </div>
+          <div id='comment-box-${post.id}' class='hidden mt-3'>
+            <input id='comment-${post.id}' placeholder='Write comment' class='w-full p-2 rounded bg-slate-700 mb-2' />
+            <button onclick="addComment(${post.id})" class='w-full bg-green-500 p-2 rounded'>Post Comment</button>
           </div>
-          <div className="w-1/3 border rounded p-3">
-            <h3 className="font-semibold">Active Lives</h3>
-            {data.lives.length === 0 && <div className="italic">No active lives</div>}
-            {data.lives.map(l => (
-              <div key={l.id} className="border rounded p-2 mt-2">{data.users[l.userId]?.displayName} — started {new Date(l.startedAt).toLocaleTimeString()}</div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
+        `;
+        container.appendChild(card);
+      });
+    }
 
-  function DMView() {
-    const threads = Object.values(data.dms);
-    const thread = selectedThread ? data.dms[selectedThread] : threads[0];
-    return (
-      <div className="p-4 flex gap-4">
-        <div className="w-1/3 border rounded p-2">
-          <h3 className="font-semibold mb-2">Threads</h3>
-          <div className="space-y-2">
-            {threads.length === 0 && <div className="italic">No DMs yet</div>}
-            {threads.map(t => (
-              <div key={t.id} onClick={()=>setSelectedThread(t.id)} className="p-2 border rounded cursor-pointer">{t.participants.filter(id=>id!==mainUserId).map(id=>data.users[id]?.displayName||id).join(', ')}</div>
-            ))}
-          </div>
-          <h4 className="mt-3">Send quick message</h4>
-          <form onSubmit={handleSendDM} className="space-y-2">
-            <input value={dmTo} onChange={e=>setDmTo(e.target.value)} placeholder="Recipient username" className="w-full p-1 border rounded" />
-            <textarea value={dmText} onChange={e=>setDmText(e.target.value)} placeholder="Message" className="w-full p-1 border rounded" />
-            <button className="px-2 py-1 bg-blue-600 text-white rounded">Send</button>
-          </form>
-        </div>
-        <div className="w-2/3 border rounded p-2">
-          <h3 className="font-semibold">Conversation</h3>
-          {!thread && <div className="italic">Select a thread</div>}
-          {thread && (
-            <div>
-              <div className="space-y-2 h-96 overflow-y-auto border p-2">
-                {thread.messages.map(m => (
-                  <div key={m.id} className={`p-2 rounded ${m.userId===mainUserId? 'bg-blue-50 self-end':'bg-gray-100'}`}>
-                    <div className="text-sm font-semibold">{data.users[m.userId]?.displayName || m.userId}</div>
-                    <div>{m.text}</div>
-                    <div className="text-xs text-gray-500">{new Date(m.createdAt).toLocaleString()}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2">
-                <button onClick={() => { /* simulate reply */ updateData(d => { thread.messages.push({ id: uid(), userId: thread.participants.find(id=>id!==mainUserId), text: 'Auto reply (simulated)', createdAt: now() }); }); }} className="px-2 py-1 border rounded">Simulate reply</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+    // ---------------------------
+    // On load: check session
+    // ---------------------------
+    window.addEventListener('load', async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) { state.user = data.session.user; await loadProfile(); }
+      renderApp();
+    });
 
-  function ShopView() {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold mb-2">Shop</h2>
-        <div className="grid grid-cols-2 gap-4">
-          {data.shop.map(p => (
-            <div key={p.id} className="border rounded p-3">
-              <div className="font-semibold">{p.title}</div>
-              <div className="text-sm text-gray-600">${p.price}</div>
-              <div className="text-sm text-gray-500">Tags: {p.tags.join(', ')}</div>
-              <div className="mt-2"><button onClick={()=>buyProduct(p.id)} className="px-2 py-1 bg-green-600 text-white rounded">Buy</button></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+    // expose supabase for debugging
+    window.supabase = supabase;
+  </script>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-purple-700 text-white min-h-screen font-sans">
 
-  function ProfileView() {
-    return (
-      <div className="p-4">
-        <div className="flex gap-4">
-          <div className="w-1/3 border rounded p-3">
-            <div className="text-2xl font-bold">{mainUser.displayName}</div>
-            <div className="text-sm text-gray-600">@{mainUser.username}</div>
-            <div className="mt-2 italic">{mainUser.notes}</div>
-            <div className="mt-3">
-              <button onClick={()=>setView('dashboard')} className="px-2 py-1 border rounded">Professional Dashboard</button>
-            </div>
-          </div>
-          <div className="w-2/3 border rounded p-3">
-            <h3 className="font-semibold">Your Posts</h3>
-            <div className="space-y-2 mt-2">
-              {data.posts.filter(p=>p.userId===mainUserId).map(p=> (
-                <div key={p.id} className="border rounded p-2">{p.caption}</div>
-              ))}
-            </div>
-            <h3 className="mt-4 font-semibold">Highlights</h3>
-            <div className="space-y-2 mt-2">
-              {mainUser.highlights.map(h => <div key={h.id} className="border rounded p-2">{h.title}</div>)}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function DashboardView() {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold">Professional Dashboard</h2>
-        <div className="grid grid-cols-3 gap-4 mt-3">
-          <div className="border rounded p-3">
-            <div className="text-sm text-gray-600">Followers</div>
-            <div className="text-2xl font-bold">{dashboard.followers}</div>
-          </div>
-          <div className="border rounded p-3">
-            <div className="text-sm text-gray-600">Posts</div>
-            <div className="text-2xl font-bold">{dashboard.posts}</div>
-          </div>
-          <div className="border rounded p-3">
-            <div className="text-sm text-gray-600">Stories</div>
-            <div className="text-2xl font-bold">{dashboard.stories}</div>
-          </div>
-        </div>
-        <div className="mt-4">
-          <h3 className="font-semibold">Quick Actions</h3>
-          <div className="flex gap-2 mt-2">
-            <button onClick={()=>alert('Promote (simulated)')} className="px-2 py-1 border rounded">Promote Post</button>
-            <button onClick={()=>alert('Boost Story (simulated)')} className="px-2 py-1 border rounded">Boost Story</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function ExploreResults() {
-    if (!searchQuery) return null;
-    return (
-      <div className="p-4 border-t">
-        <h3 className="font-semibold">Search results</h3>
-        <div className="space-y-2 mt-2">
-          {searchResults.map((r, idx) => (
-            <div key={idx} className="border rounded p-2">
-              {r.username ? <div>User: {r.displayName} (@{r.username})</div> : <div>Post: {(r.caption || '').slice(0,100)}</div>}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-white text-gray-800">
-      <TopBar />
-      <div className="max-w-5xl mx-auto">
-        {view === 'feed' && <FeedView />}
-        {view === 'stories' && <StoriesView />}
-        {view === 'reels' && <ReelsView />}
-        {view === 'live' && <LiveView />}
-        {view === 'dm' && <DMView />}
-        {view === 'shop' && <ShopView />}
-        {view === 'profile' && <ProfileView />}
-        {view === 'dashboard' && <DashboardView />}
-        <ExploreResults />
-      </div>
-
-      <footer className="mt-10 p-4 text-center text-sm text-gray-500">FilmyDJ demo • Client-side only • Save to GitHub Pages</footer>
+  <!-- Header -->
+  <header class="p-4 flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-cyan-300">🎬 TheFilmyDJ</h1>
+    <div class="flex items-center gap-3">
+      <div id="top-username" class="text-sm"></div>
+      <button onclick="logout()" class="bg-red-600 px-3 py-1 rounded text-sm">Logout</button>
     </div>
-  );
-}
+  </header>
+
+  <main class="p-6">
+    <!-- AUTH AREA (shown when not logged in) -->
+    <section id="auth-area" class="max-w-3xl mx-auto grid grid-cols-2 gap-6">
+
+      <div class="bg-slate-800 p-6 rounded-lg">
+        <h2 class="text-xl font-semibold mb-3">Login</h2>
+        <input id="li-email" placeholder="Email" class="w-full p-2 rounded bg-slate-700 mb-3" />
+        <input id="li-password" type="password" placeholder="Password" class="w-full p-2 rounded bg-slate-700 mb-3" />
+        <button onclick="login()" class="w-full bg-cyan-500 p-2 rounded">Login</button>
+        <p id="login-msg" class="text-sm text-yellow-300 mt-2"></p>
+      </div>
+
+      <div class="bg-slate-800 p-6 rounded-lg">
+        <h2 class="text-xl font-semibold mb-3">Sign up</h2>
+        <input id="su-username" placeholder="Choose username (unique)" class="w-full p-2 rounded bg-slate-700 mb-3" />
+        <input id="su-email" placeholder="Email" class="w-full p-2 rounded bg-slate-700 mb-3" />
+        <input id="su-password" type="password" placeholder="Password" class="w-full p-2 rounded bg-slate-700 mb-3" />
+        <button onclick="signup()" class="w-full bg-green-500 p-2 rounded">Create account</button>
+        <p id="auth-msg" class="text-sm text-yellow-300 mt-2"></p>
+      </div>
+
+    </section>
+
+    <!-- MAIN AREA (when logged in) -->
+    <section id="main-area" class="hidden max-w-4xl mx-auto">
+      <div class="grid grid-cols-3 gap-6">
+        <!-- Left: actions -->
+        <div class="col-span-1">
+          <div class="bg-slate-800 p-4 rounded mb-4">
+            <h3 class="font-semibold mb-2">Create</h3>
+            <input id="fileInput" type="file" class="mb-2 w-full text-sm" />
+            <input id="post-caption" placeholder="Caption" class="w-full p-2 rounded bg-slate-700 mb-2" />
+            <button onclick="uploadAndCreatePost()" class="w-full bg-emerald-500 p-2 rounded">Upload & Post</button>
+            <p id="upload-msg" class="text-sm text-yellow-300 mt-2"></p>
+          </div>
+
+          <div class="bg-slate-800 p-4 rounded mb-4">
+            <h3 class="font-semibold mb-2">Navigation</h3>
+            <button onclick="window.state.viewing='feed'; loadFeed();" class="w-full mb-2 p-2 rounded bg-gray-700">Feed</button>
+            <button onclick="window.state.viewing='reels';alert('Reels UI coming soon')" class="w-full mb-2 p-2 rounded bg-gray-700">Reels</button>
+            <button onclick="window.state.viewing='messages';alert('Open Messages from posts or search users to chat')" class="w-full mb-2 p-2 rounded bg-gray-700">Messages</button>
+            <button onclick="window.state.viewing='profile';alert('Profile page coming soon')" class="w-full p-2 rounded bg-gray-700">Profile</button>
+          </div>
+        </div>
+
+        <!-- Center: feed -->
+        <div class="col-span-1">
+          <div id="feed"></div>
+        </div>
+
+        <!-- Right: users & notifications -->
+        <div class="col-span-1">
+          <div class="bg-slate-800 p-4 rounded mb-4">
+            <h3 class="font-semibold mb-2">Discover Users</h3>
+            <div id="discover"></div>
+            <button onclick="renderDiscover()" class="mt-2 w-full bg-cyan-500 p-2 rounded">Refresh</button>
+          </div>
+
+          <div class="bg-slate-800 p-4 rounded">
+            <h3 class="font-semibold mb-2">Notifications</h3>
+            <div id="notifications"></div>
+            <button onclick="renderNotifications()" class="mt-2 w-full bg-yellow-500 p-2 rounded">Load</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Chat Modal -->
+    <div id="chat-modal" class="hidden fixed inset-0 flex items-end justify-center bg-black/50 p-4">
+      <div class="bg-slate-900 w-full max-w-xl rounded p-4">
+        <div class="flex justify-between mb-2">
+          <div id="chat-with" class="font-semibold"></div>
+          <button onclick="closeChat()" class="text-red-400">Close</button>
+        </div>
+        <div id="messages-list" class="h-60 overflow-auto bg-slate-800 p-3 rounded mb-2"></div>
+        <div class="flex gap-2">
+          <input id="send-to" data-to="" placeholder="Message" class="flex-1 p-2 rounded bg-slate-700" />
+          <button onclick="sendMessage()" class="bg-cyan-500 p-2 rounded">Send</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // helper UI renders for discover & notifications (simple implementations)
+    async function renderDiscover() {
+      const d = document.getElementById('discover'); d.innerHTML = '';
+      const { data } = await supabase.from('profiles').select('*').limit(10);
+      data.forEach(u => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center gap-2 mb-2';
+        div.innerHTML = `<img src='${u.avatar_url||'https://via.placeholder.com/40'}' class='w-10 h-10 rounded-full' /><div class='flex-1'><div class='font-semibold'>${u.username}</div></div><button onclick="openChat('${u.id}','${u.username}')" class='text-sm underline'>Chat</button>`;
+        d.appendChild(div);
+      });
+    }
+
+    async function renderNotifications() {
+      const n = document.getElementById('notifications'); n.innerHTML = '';
+      if (!window.state.user) { n.textContent = 'Login to see notifications'; return; }
+      const { data } = await supabase.from('notifications').select(`*, actor:profiles(username)`).eq('user_id', window.state.user.id).order('created_at', { ascending: false }).limit(20);
+      if (!data || !data.length) { n.textContent = 'No notifications yet'; return; }
+      data.forEach(nt => {
+        const el = document.createElement('div');
+        el.className = 'mb-2 text-sm bg-slate-800 p-2 rounded';
+        el.textContent = `${nt.actor?.username || 'Someone'} ${nt.type} ${nt.meta? ' — ' + nt.meta : ''}`;
+        n.appendChild(el);
+      });
+    }
+  </script>
+
+</body>
+</html>
