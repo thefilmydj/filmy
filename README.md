@@ -133,8 +133,8 @@
 
   <!-- RIGHT: sidebar -->
   <aside class="sidebar">
-}
-    <div class="card mini-card">
+    
+  <div class="card mini-card">
       <div style="flex:1">
         <div style="font-weight:700">Shubham</div>
         <div class="small">@filmydj</div>
